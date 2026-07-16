@@ -1,0 +1,20 @@
+# Kişisel bilgiler — asla commit edilmemeli
+config.json
+session.json
+
+# Video dosyaları (ihbar kanıtları) — klasör kalsın, içerik gitmesin
+videolar/*
+!videolar/.gitkeep
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Debug / geçici dosyalar
+arsiv/
+*.log
+temp_ocr_frame.png
+
+# macOS
+.DS_Store

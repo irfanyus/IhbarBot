@@ -1,0 +1,2 @@
+selenium>=4.46.0
+geopy>=2.5.0
