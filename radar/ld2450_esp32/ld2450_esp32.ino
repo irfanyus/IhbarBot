@@ -225,7 +225,8 @@ void loop() {
 
     if (rawCount == 0) {
       Serial.println("[radar] HIC BAYT GELMEDI -> elektriksel sorun.");
-      Serial.println("        Radarin TX'i IO16'ya bagli mi? GND ortak mi? Radar besleniyor mu?");
+      Serial.printf("        Radarin TX'i GPIO%d'ye bagli mi? GND ortak mi? Radar besleniyor mu?\n",
+                    RADAR_RX_PIN);
       Serial.println("        Ilk deneme: radar tarafinda TX ve RX tellerini yer degistir.");
     } else {
       Serial.printf("[radar] %lu ham bayt geldi ama gecerli cerceve yok -> baud/parse sorunu.\n",
