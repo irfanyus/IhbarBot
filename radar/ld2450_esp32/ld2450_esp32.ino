@@ -7,8 +7,8 @@
  *
  * Kablolama (USB-TTL'e gerek yok):
  *   radar GND -> ESP32 GND
- *   radar TX  -> RADAR_RX_PIN (IO16)     <- caprazlanir
- *   radar RX  -> RADAR_TX_PIN (IO17)     <- caprazlanir
+ *   radar TX  -> RADAR_RX_PIN (IO25)     <- caprazlanir
+ *   radar RX  -> RADAR_TX_PIN (IO26)     <- caprazlanir
  *   radar 5V  -> ESP32 VCC (5V rayi)
  *
  * Elimizdeki kabloda olculen renk sirasi (sureklilik testiyle dogrulandi):
@@ -27,10 +27,21 @@
 
 // ------------------------------ AYARLAR ------------------------------
 
-// ESP32'nin RX'i  <- radarin TX'i (siyah kablo)
-#define RADAR_RX_PIN   16
-// ESP32'nin TX'i  -> radarin RX'i (sari kablo)
-#define RADAR_TX_PIN   17
+// ESP32'nin RX'i  <- radarin TX'i
+#define RADAR_RX_PIN   25
+// ESP32'nin TX'i  -> radarin RX'i
+#define RADAR_TX_PIN   26
+
+// NEDEN 16/17 DEGIL: klasik ESP32'de PSRAM tam olarak GPIO16 ve GPIO17'yi
+// kullanir. Arduino IDE'de kart ayarlarinda PSRAM "Enabled" ise cekirdek bu
+// iki pini PSRAM denetleyicisine ayirir; UART hicbir sey okumaz, kod yine de
+// sorunsuz derlenip calisir ve hata vermez. Sessiz bir tuzak oldugu icin
+// varsayilan olarak IO25/IO26 secildi. 16/17 kullanmak istersen once
+// Tools -> PSRAM -> Disabled yap.
+//
+// Bu kartta bos ve guvenli diger secenekler: IO18, IO19, IO21, IO22, IO23,
+// IO27, IO32, IO33. Kacinilmasi gerekenler: IO0/IO2/IO12/IO15 (boot strapping),
+// IO34-IO39 (yalnizca giris, TX olamaz), SD*/CLK/CMD (dahili flash).
 
 // LD2450 fabrika ayari 256000. Konfigurasyon aracindan degistirdiysen guncelle.
 #define RADAR_BAUD     256000
@@ -45,7 +56,8 @@
 #define PRINT_EMPTY    0
 
 // LOOPBACK TESTI: ESP32 tarafini radardan bagimsiz dogrular.
-// 1 yap, radar kablosunu cikar, IO16 ile IO17'yi tek bir jumper ile birlestir.
+// 1 yap, radar kablosunu cikar, RADAR_RX_PIN ile RADAR_TX_PIN'i tek bir
+// jumper ile birlestir.
 // Sketch saniyede bir 55 AA gonderir; UART ve pinler saglamsa ayni baytlari
 // geri okur. Geri okuyorsa sorun radar tarafinda, okumuyorsa ESP32 tarafinda.
 #define LOOPBACK_TEST  0
@@ -182,7 +194,7 @@ void setup() {
   Serial.println();
   Serial.println("HLK-LD2450 <-> ESP32");
 #if LOOPBACK_TEST
-  Serial.println("LOOPBACK TESTI ACIK: radar kablosunu cikar, IO16 ile IO17'yi");
+  Serial.printf("LOOPBACK TESTI ACIK: radar kablosunu cikar, GPIO%d ile GPIO%d'yi\n", RADAR_RX_PIN, RADAR_TX_PIN);
   Serial.println("tek jumper ile birlestir. Beklenen: '2 ham bayt ... 55 AA'.");
 #endif
 

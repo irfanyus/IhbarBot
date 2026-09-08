@@ -26,8 +26,8 @@ Test edilen kart: **MH-ET LIVE / D1 Mini ESP32** (ESP32-WROOM-32).
 | Radar pini | Kablo rengi (bu partide) | ESP32 pini |
 |---|---|---|
 | `GND` | kırmızı | `GND` |
-| `TX`  | siyah   | `IO16` |
-| `RX`  | sarı    | `IO17` |
+| `TX`  | siyah   | `IO25` |
+| `RX`  | sarı    | `IO26` |
 | `5V`  | yeşil   | `VCC` (5V rayı) |
 
 ### TX/RX'ten emin değilsen
@@ -56,15 +56,20 @@ Başka bir kablo kullanırsan eşleşmeyi yeniden çıkar:
 
 Dikkat edilecekler:
 
-1. **TX ↔ RX çaprazlanır.** Radarın `TX`'i ESP32'nin RX'ine (`IO16`), radarın
-   `RX`'i ESP32'nin TX'ine (`IO17`) gider. Düz bağlarsan hiç veri gelmez.
+1. **TX ↔ RX çaprazlanır.** Radarın `TX`'i ESP32'nin RX'ine (`IO25`), radarın
+   `RX`'i ESP32'nin TX'ine (`IO26`) gider. Düz bağlarsan hiç veri gelmez.
 2. **ESP32 tarafında beslemeyi `VCC` (5V) pininden al.** Kartın ön yüzündeki
    `SVP`/`SVN` pinleri besleme değil, GPIO36/GPIO39'dur — oraya bağlama.
    `3.3V` pini de besleme için uygun değil; LD2450 5V ister.
-3. **UART0'ı kullanma.** `TXD`/`RXD` etiketli pinler USB seri konsoluna bağlı,
+3. **GPIO16/17'den kaçın.** Klasik ESP32'de PSRAM bu iki pini kullanır. Kart
+   ayarlarında PSRAM açıksa çekirdek pinleri PSRAM'e ayırır, UART sessizce
+   hiçbir şey okumaz — kod hatasız derlenir ve çalışır, bu yüzden teşhisi zor
+   bir tuzaktır. Sketch bu yüzden `IO25`/`IO26` kullanıyor. 16/17'de ısrar
+   edeceksen önce **Tools → PSRAM → Disabled** yap.
+4. **UART0'ı kullanma.** `TXD`/`RXD` etiketli pinler USB seri konsoluna bağlı,
    kod yüklerken çakışır. Sketch UART2'yi kullanır.
-4. Seviye çevirici gerekmez; LD2450'nin UART'ı zaten 3.3V mantık seviyesinde.
-5. Radar besleme akımı düşüktür (~100 mA tepe), USB'den beslemek yeterli.
+5. Seviye çevirici gerekmez; LD2450'nin UART'ı zaten 3.3V mantık seviyesinde.
+6. Radar besleme akımı düşüktür (~100 mA tepe), USB'den beslemek yeterli.
 
 Farklı bir kart kullanacaksan `RADAR_RX_PIN` / `RADAR_TX_PIN` değerlerini
 değiştirmen yeterli. ESP32'de UART pin matrisi olduğu için hemen her GPIO
