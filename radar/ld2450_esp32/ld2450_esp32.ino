@@ -71,6 +71,13 @@ struct Target {
 
 static uint8_t  frameBuf[FRAME_LEN];
 static uint8_t  frameIdx      = 0;
+
+// Tani: son periyotta kac ham bayt geldi ve ilk birkaci neydi.
+// "Hic bayt gelmiyor" (kablolama/besleme) ile "bayt geliyor ama cozulmuyor"
+// (baud/parse) durumlarini ayirt etmek icin.
+static uint32_t rawCount      = 0;
+static uint8_t  rawSample[24];
+static uint8_t  rawSampleLen  = 0;
 static uint32_t lastFrameMs   = 0;
 static uint32_t lastPrintMs   = 0;
 static uint32_t frameCount    = 0;
@@ -175,19 +182,35 @@ void setup() {
 
 void loop() {
   while (RadarSerial.available()) {
-    feed((uint8_t)RadarSerial.read());
+    uint8_t b = (uint8_t)RadarSerial.read();
+    rawCount++;
+    if (rawSampleLen < sizeof(rawSample)) rawSample[rawSampleLen++] = b;
+    feed(b);
   }
 
   // 3 saniyedir gecerli cerceve yoksa ya kablolama ya da baud yanlis.
   if (millis() - lastFrameMs > 3000) {
     lastFrameMs = millis();
+
+    if (rawCount == 0) {
+      Serial.println("[radar] HIC BAYT GELMEDI -> elektriksel sorun.");
+      Serial.println("        Radarin TX'i IO16'ya bagli mi? GND ortak mi? Radar besleniyor mu?");
+      Serial.println("        Ilk deneme: radar tarafinda TX ve RX tellerini yer degistir.");
+    } else {
+      Serial.printf("[radar] %lu ham bayt geldi ama gecerli cerceve yok -> baud/parse sorunu.\n",
+                    (unsigned long)rawCount);
+      Serial.print("        ilk baytlar:");
+      for (uint8_t i = 0; i < rawSampleLen; i++) Serial.printf(" %02X", rawSample[i]);
+      Serial.println();
+      Serial.println("        Gecerli cerceve AA FF 03 00 ile baslar.");
+    }
+    rawCount = 0;
+    rawSampleLen = 0;
+
 #if AUTO_BAUD
     baudIndex = (baudIndex + 1) % BAUD_COUNT;
-    Serial.println("[radar] Veri yok, baska bir baud deneniyor...");
     startRadarSerial(BAUD_LIST[baudIndex]);
     frameIdx = 0;
-#else
-    Serial.println("[radar] Veri yok. TX/RX caprazlamasini, GND ortakligini ve baud degerini kontrol et.");
 #endif
   }
 }
