@@ -44,6 +44,12 @@
 // Bos slotlari da yazdirmak icin 1 yap.
 #define PRINT_EMPTY    0
 
+// LOOPBACK TESTI: ESP32 tarafini radardan bagimsiz dogrular.
+// 1 yap, radar kablosunu cikar, IO16 ile IO17'yi tek bir jumper ile birlestir.
+// Sketch saniyede bir 55 AA gonderir; UART ve pinler saglamsa ayni baytlari
+// geri okur. Geri okuyorsa sorun radar tarafinda, okumuyorsa ESP32 tarafinda.
+#define LOOPBACK_TEST  0
+
 // ---------------------------------------------------------------------
 
 // Klasik ESP32'de UART2 bostur. ESP32-C3/C6 gibi 2 UART'li yongalarda
@@ -175,12 +181,25 @@ void setup() {
   delay(300);
   Serial.println();
   Serial.println("HLK-LD2450 <-> ESP32");
+#if LOOPBACK_TEST
+  Serial.println("LOOPBACK TESTI ACIK: radar kablosunu cikar, IO16 ile IO17'yi");
+  Serial.println("tek jumper ile birlestir. Beklenen: '2 ham bayt ... 55 AA'.");
+#endif
 
   startRadarSerial(RADAR_BAUD);
   lastFrameMs = millis();
 }
 
 void loop() {
+#if LOOPBACK_TEST
+  static uint32_t lastTxMs = 0;
+  if (millis() - lastTxMs > 1000) {
+    lastTxMs = millis();
+    RadarSerial.write(0x55);
+    RadarSerial.write(0xAA);
+  }
+#endif
+
   while (RadarSerial.available()) {
     uint8_t b = (uint8_t)RadarSerial.read();
     rawCount++;
@@ -207,7 +226,7 @@ void loop() {
     rawCount = 0;
     rawSampleLen = 0;
 
-#if AUTO_BAUD
+#if AUTO_BAUD && !LOOPBACK_TEST
     baudIndex = (baudIndex + 1) % BAUD_COUNT;
     startRadarSerial(BAUD_LIST[baudIndex]);
     frameIdx = 0;
