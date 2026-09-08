@@ -23,34 +23,44 @@ Bunları bir kez yapıp adaptörü kaldırabilirsin.
 
 Test edilen kart: **MH-ET LIVE / D1 Mini ESP32** (ESP32-WROOM-32).
 
-| LD2450 pini | ESP32 pini |
-|---|---|
-| `5V`  | `VCC` (5V rayı) |
-| `GND` | `GND` |
-| `TX`  | `IO16` |
-| `RX`  | `IO17` |
+| Radar pini | Kablo rengi (bu partide) | ESP32 pini |
+|---|---|---|
+| `GND` | kırmızı | `GND` |
+| `TX`  | siyah   | `IO16` |
+| `RX`  | sarı    | `IO17` |
+| `5V`  | yeşil   | `VCC` (5V rayı) |
+
+### TX/RX'ten emin değilsen
+
+Bu partide TX ve RX'in hangi renge düştüğü kablonun konnektöre giriş sırasından
+gözle net okunamıyor. Süreklilik testi siyah = `TX`, sarı = `RX` verdi ve
+dokümantasyon buna göre yazıldı.
+
+Sketch hiç çerçeve basmıyorsa **ilk denenecek şey siyah ve sarıyı yer
+değiştirmek**. İki hattı ters bağlamak zarar vermez; sadece veri akmaz.
 
 ### Kablo renklerine güvenme
 
-LD2450 ile gelen 4'lü kablonun renk sırası üretim partisine göre değişir
-(kırmızı/siyah/sarı/yeşil, kırmızı/siyah/sarı/beyaz gibi farklı kombinasyonlar
-dolaşıyor). Renkten pin tahmin etmek 5V'u bir GPIO'ya bağlamakla sonuçlanabilir.
+Yukarıdaki renk sütunu **yalnızca eldeki kablo için** geçerli; LD2450 ile gelen
+4'lü kablonun renk sırası üretim partisine göre değişiyor. Bu partide kırmızının
+GND, yeşilin besleme olması standart dışı — renkten gitmek 5V'u bir GPIO'ya
+bağlamakla sonuçlanabilir.
 
-Doğru referans, radar kartının konnektörün yanındaki ipek baskısı: pinler
-`5V`, `RX`, `TX`, `GND` olarak tek tek yazılmış durumda. Bağlamadan önce:
+Başka bir kablo kullanırsan eşleşmeyi yeniden çıkar:
 
-1. Radar kartını ters çevir, konnektörün yanındaki etiketleri oku.
+1. Radar kartını ters çevir, konnektörün yanındaki `5V` / `RX` / `TX` / `GND`
+   etiketlerini oku.
 2. Multimetreyi süreklilik moduna al; bir ucu kablonun dişi ucundaki bir tele,
-   diğer ucu kartın ilgili pin/pad'ine değdirip hangi telin hangi pine
-   gittiğini tek tek çıkar.
-3. Çıkardığın eşleşmeyi bir yere not et, sonra ESP32'ye bağla.
+   diğer ucu kartın ilgili pin/pad'ine değdirerek eşleşmeyi tek tek çıkar.
+3. Notunu al, sonra bağla.
 
 Dikkat edilecekler:
 
-1. **TX ↔ RX çaprazlanır.** Düz bağlarsan hiç veri gelmez.
-2. **Beslemeyi doğrula.** Kartta hem `VCC` (5V) hem `3.3V` pini var. LD2450 5V ister;
-   bağlamadan önce multimetreyle ölç. Kartın ön yüzündeki `SVP`/`SVN` pinleri
-   besleme değil, GPIO36/GPIO39'dur — oraya bağlama.
+1. **TX ↔ RX çaprazlanır.** Radarın `TX`'i ESP32'nin RX'ine (`IO16`), radarın
+   `RX`'i ESP32'nin TX'ine (`IO17`) gider. Düz bağlarsan hiç veri gelmez.
+2. **ESP32 tarafında beslemeyi `VCC` (5V) pininden al.** Kartın ön yüzündeki
+   `SVP`/`SVN` pinleri besleme değil, GPIO36/GPIO39'dur — oraya bağlama.
+   `3.3V` pini de besleme için uygun değil; LD2450 5V ister.
 3. **UART0'ı kullanma.** `TXD`/`RXD` etiketli pinler USB seri konsoluna bağlı,
    kod yüklerken çakışır. Sketch UART2'yi kullanır.
 4. Seviye çevirici gerekmez; LD2450'nin UART'ı zaten 3.3V mantık seviyesinde.
@@ -96,7 +106,7 @@ Sketch'in başındaki blok:
 
 | Belirti | Sebep |
 |---|---|
-| Hiç veri yok | TX/RX çaprazlanmamış, ya da GND ortak değil |
+| Hiç veri yok | Önce siyah/sarıyı yer değiştir (TX/RX ters olabilir); sonra GND ortaklığını kontrol et |
 | Çöp karakter | Baud yanlış — `AUTO_BAUD 1` yapıp seri monitörü izle |
 | Kod yüklenmiyor | Radar `TXD`/`RXD` pinlerine bağlı, UART0'ı meşgul ediyor |
 | Hedef hep boş geliyor | Radarın önü kapalı; metal yüzeyden ve duvardan uzaklaştır |

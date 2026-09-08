@@ -6,26 +6,30 @@
  * acisini basar. LD2450 ayni anda en fazla 3 hedef bildirir.
  *
  * Kablolama (USB-TTL'e gerek yok):
- *   LD2450 5V  -> ESP32 5V rayi   (D1 Mini ESP32'de VCC etiketli pin)
- *   LD2450 GND -> GND
- *   LD2450 TX  -> RADAR_RX_PIN    (IO16)
- *   LD2450 RX  -> RADAR_TX_PIN    (IO17)
+ *   radar GND -> ESP32 GND
+ *   radar TX  -> RADAR_RX_PIN (IO16)     <- caprazlanir
+ *   radar RX  -> RADAR_TX_PIN (IO17)     <- caprazlanir
+ *   radar 5V  -> ESP32 VCC (5V rayi)
  *
- * DIKKAT: Kablo renkleri uretici partisine gore degisir. Hangi telin hangi
- * pine gittigini renkten tahmin etme; radar kartinin konnektor yanindaki
- * ipek baskisinda (5V / RX / TX / GND) yazan sirayi esas al ve teli
- * multimetre ile sureklilik testinden gecirerek dogrula.
+ * Elimizdeki kabloda olculen renk sirasi (sureklilik testiyle dogrulandi):
+ *   kirmizi = GND        siyah = TX (radarin cikisi)
+ *   sari    = RX         yesil = 5V
+ * Bu sira uretici partisine gore degisir; baska bir kabloda renkten
+ * gitme, her seferinde karttaki ipek baski etiketini esas al.
+ * Hic cerceve gelmezse ilk deneme: siyah ve sariyi yer degistir (TX/RX
+ * ters baglanmasi zarar vermez, sadece veri akmaz).
  *
- * TX ve RX caprazlanir. Seviye cevirici gerekmez, LD2450'nin UART'i 3.3V.
- * Besleme pinini baglamadan once ESP32 tarafinda da 5V oldugunu olc; kart
- * uzerinde 3.3V pini de var ve LD2450 orada kararsiz calisir.
+ * ESP32 tarafinda besleme icin VCC etiketli pini kullan; kartta 3.3V pini de
+ * var ve LD2450 orada kararsiz calisir.
+ *
+ * Seviye cevirici gerekmez, LD2450'nin UART'i 3.3V mantik seviyesinde.
  */
 
 // ------------------------------ AYARLAR ------------------------------
 
-// ESP32'nin RX'i  <- radarin TX'i (sari kablo)
+// ESP32'nin RX'i  <- radarin TX'i (siyah kablo)
 #define RADAR_RX_PIN   16
-// ESP32'nin TX'i  -> radarin RX'i (beyaz kablo)
+// ESP32'nin TX'i  -> radarin RX'i (sari kablo)
 #define RADAR_TX_PIN   17
 
 // LD2450 fabrika ayari 256000. Konfigurasyon aracindan degistirdiysen guncelle.
