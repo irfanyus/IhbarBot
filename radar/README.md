@@ -112,6 +112,29 @@ Sketch'in başındaki blok:
 | Hedef hep boş geliyor | Radarın önü kapalı; metal yüzeyden ve duvardan uzaklaştır |
 | Değerler saçma | İşaret çözümü yanlış olabilir — LD2450 ikiye tümleyen değil, işaret-büyüklük kodlar |
 
+## Sahada karşılaşılan sorun: kopuk sinyal teli
+
+İlk kurulumda sketch her baud'da `HIC BAYT GELMEDI` bastı. Sırayla elenen adımlar:
+
+1. Kart seçimi (ESP32-S3 seçiliydi, klasik ESP32 olmalıydı) — düzeltildi, yükleme geçti
+2. Yükleme hızı 921600'de kopuyordu — 115200'e çekildi
+3. TX/RX yer değiştirildi — değişiklik yok
+4. Radar besleme pininde 5V ölçüldü — besleme sağlam, GND ortak
+5. Radar `TX` pad'inde ~3.3V ölçüldü — radar canlı, hattı sürüyor
+6. **`TX` pad'i ile ESP32 ucu arasında süreklilik yok** — sorun bulundu
+
+Kopukluk, radar kablosunun ince telinin dupont jumper muhafazasına
+**itilerek** takıldığı noktadaydı. O ek sadece sürtünmeyle tutuyor ve kolayca
+temassız kalıyor.
+
+Dikkat edilecek nokta: radarın `TX` pad'inde gerilim ölçmek hattın sürüldüğünü
+gösterir, ama o gerilimin ESP32'ye **ulaştığını** göstermez. Tel ortadan kopuksa
+radar yine kendi pinini sürer, pad'de yine ~3.3V okunur, ESP32 tarafı boşta
+kalır. Bu ikisini ayırmanın tek yolu uçtan uca süreklilik ölçmektir.
+
+Kalıcı çözüm: eki lehimleyip makaronla izole etmek, ya da kabloyu atlayıp
+radar kartındaki `5V/RX/TX/GND` delikli pad'lerine doğrudan tel lehimlemek.
+
 ## Protokol notu
 
 Hedef verisi 30 baytlık sabit çerçeve halinde gelir:
