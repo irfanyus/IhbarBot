@@ -1,10 +1,14 @@
 # Kişisel bilgiler — asla commit edilmemeli
 config.json
 session.json
+ihbar_gecmisi.json
 
 # Video dosyaları (ihbar kanıtları) — klasör kalsın, içerik gitmesin
 videolar/*
 !videolar/.gitkeep
+
+# Videodan çıkarılan kareler (yüklenecek görseller)
+gorseller/
 
 # Python
 venv/

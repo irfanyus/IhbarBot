@@ -4,5 +4,7 @@
     "tc_kimlik": "11111111111",
     "telefon": "5xxxxxxxxx",
     "adres": "İKAMET ADRESİNİZ",
-    "eposta": "ornek@eposta.com"
+    "eposta": "ornek@eposta.com",
+    "drive_remote": "gdrive",
+    "drive_klasor_id": "DRIVE_KLASOR_ID"
 }

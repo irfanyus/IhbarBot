@@ -1,26 +1,43 @@
 import os
 import re
 import time
+import subprocess
 from datetime import datetime
 from geocoder import reverse_geocode
-from form_filler import IhbarFormFiller
+from form_filler import IhbarFormFiller, ALLOWED_IMAGE_EXT, MAX_IMAGE_BYTES
+from ocr_helper import extract_frame_from_video, get_video_duration
+import drive_uploader
 from selenium import webdriver
 
 # Türk plaka formatı: 2 hane il kodu + 1-3 harf + 2-4 rakam (örn: 09AID146, 34JJ9251)
 PLATE_PATTERN = re.compile(r'^\d{2}[A-Z]{1,3}\d{2,4}$')
 
+# Plakaları ayıran her şey ayraç sayılır. Dosya adında boşluk kullanmak
+# Finder'da zahmetli olduğu için virgül de sık kullanılıyor ("74AAY507,34PH7806.mp4");
+# eskiden yalnızca boşluğa bakılıyordu ve virgüllü ad tek parça sayılıp hiçbir
+# plaka tanınmıyordu.
+PLAKA_AYRAC = re.compile(r"[^0-9A-Za-z]+")
+
+
+def plakalari_ayikla(metin):
+    """Serbest metinden geçerli plakaları çıkarır (virgül/boşluk/alt çizgi/tire ayraç)."""
+    if not metin:
+        return []
+    return [p.upper() for p in PLAKA_AYRAC.split(metin) if PLATE_PATTERN.match(p.upper())]
+
+
 def parse_plates_from_filename(video_path):
     """
     Video dosya adından plaka(ları) çıkarır.
-    Örn: '09AID146.mp4' -> ['09AID146']
-         '34ABC123 06XYZ789.mp4' -> ['34ABC123', '06XYZ789']  (birden çok plaka boşlukla ayrılır)
+    Örn: '09AID146.mp4'            -> ['09AID146']
+         '34ABC123 06XYZ789.mp4'   -> ['34ABC123', '06XYZ789']
+         '74AAY507,34PH7806.mp4'   -> ['74AAY507', '34PH7806']
     Plaka formatına uymayan dosya adlarında boş liste döner.
     """
     if not video_path:
         return []
     base = os.path.splitext(os.path.basename(video_path))[0]
-    plates = [t.upper() for t in base.split() if PLATE_PATTERN.match(t.upper())]
-    return plates
+    return plakalari_ayikla(base)
 
 def find_video_in_folder(folder_path):
     """
@@ -35,6 +52,101 @@ def find_video_in_folder(folder_path):
         if filename.lower().endswith(video_extensions):
             return os.path.abspath(os.path.join(folder_path, filename))
     return None
+
+
+def find_image_in_folder(folder_path):
+    """
+    Klasördeki ilk görseli (jpg/jpeg/png) döndürür.
+    Site artık video kabul etmediği için, hazır bir ekran görüntüsü varsa
+    videodan kare çıkarmaya gerek kalmadan doğrudan o kullanılır.
+    """
+    if not os.path.exists(folder_path):
+        return None
+    for filename in sorted(os.listdir(folder_path)):
+        if filename.lower().endswith(ALLOWED_IMAGE_EXT):
+            return os.path.abspath(os.path.join(folder_path, filename))
+    return None
+
+
+def prepare_image_from_video(video_path, at_seconds=5, out_dir=None):
+    """
+    Videodan tek bir kare çıkarıp JPEG olarak kaydeder ve yolunu döndürür.
+
+    ihbar.ng112.gov.tr 2026 güncellemesinde video yüklemeyi kaldırdı; ek olarak
+    yalnızca jpg/jpeg/png (max 5 MB) kabul ediliyor. Bu yüzden dash-cam videosu
+    artık doğrudan yüklenemiyor, olayın göründüğü kare çıkarılıp o gönderiliyor.
+    """
+    if not video_path or not os.path.exists(video_path):
+        return None
+    if out_dir is None:
+        out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gorseller")
+    os.makedirs(out_dir, exist_ok=True)
+
+    # İstenen saniye videodan uzunsa ffmpeg sessizce boş çıktı üretiyor ve ihbar
+    # görselsiz gidiyor; bu yüzden klibin sonuna sığacak bir kareye çekiyoruz.
+    duration = get_video_duration(video_path)
+    if duration and at_seconds >= duration:
+        clamped = max(0, round(duration - 0.5, 1))
+        print(f"[UYARI] Video {duration:.1f} sn; {at_seconds}. saniye yok. "
+              f"Kare {clamped}. saniyeden alınıyor.")
+        at_seconds = clamped
+
+    base = os.path.splitext(os.path.basename(video_path))[0]
+    out_path = os.path.join(out_dir, f"{base}_{at_seconds}s.jpg")
+    if extract_frame_from_video(video_path, out_path, at_seconds=at_seconds):
+        size = os.path.getsize(out_path)
+        if size > MAX_IMAGE_BYTES:
+            print(f"[UYARI] Çıkarılan kare {MAX_IMAGE_BYTES//(1024*1024)} MB sınırını aşıyor "
+                  f"({size/1024/1024:.1f} MB).")
+        print(f"[INFO] Videodan kare çıkarıldı ({at_seconds}. saniye): {out_path}")
+        return out_path
+    print("[HATA] Videodan kare çıkarılamadı (ffmpeg kurulu mu?).")
+    return None
+
+def compress_image_for_upload(image_path, out_dir=None):
+    """
+    Bir görseli sitenin 5 MB / 4096px sınırına sığacak şekilde JPEG'e sıkıştırır.
+    Görsel zaten izin verilen tipte ve sınır altındaysa dokunmadan geri döner.
+    Sitenin kendi Compressor.js'i de aynısını yapıyor (JPEG, max 4096, düşen kalite);
+    bot göndermeden önce boyutu reddettiği için bu adımı burada da uyguluyoruz —
+    böylece elle bırakılan büyük bir PNG/fotoğraf da 'çok büyük' diye elenmez.
+    """
+    from ocr_helper import _find_ffmpeg
+    abs_path = os.path.abspath(image_path)
+    if not os.path.exists(abs_path):
+        return image_path
+
+    ext = os.path.splitext(abs_path)[1].lower()
+    if ext in ALLOWED_IMAGE_EXT and os.path.getsize(abs_path) <= MAX_IMAGE_BYTES:
+        return abs_path  # zaten uygun, dokunma
+
+    if out_dir is None:
+        out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gorseller")
+    os.makedirs(out_dir, exist_ok=True)
+    base = os.path.splitext(os.path.basename(abs_path))[0]
+    out_path = os.path.join(out_dir, f"{base}_upload.jpg")
+
+    ffmpeg = _find_ffmpeg()
+    # En uzun kenarı 4096'ya indir (küçükse büyütme), sonra kaliteyi kademeli düşür.
+    scale_vf = "scale='min(4096,iw)':'min(4096,ih)':force_original_aspect_ratio=decrease"
+    for q in (3, 5, 8, 12, 18, 25):
+        try:
+            subprocess.run(
+                [ffmpeg, '-y', '-i', abs_path, '-vf', scale_vf, '-q:v', str(q), out_path],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True,
+            )
+        except Exception as e:
+            print(f"[HATA] Görsel sıkıştırma hatası: {e}")
+            return image_path
+        if os.path.exists(out_path) and os.path.getsize(out_path) <= MAX_IMAGE_BYTES:
+            print(f"[INFO] Görsel siteye uygun boyuta getirildi (JPEG kalite q={q}, "
+                  f"{os.path.getsize(out_path)/1024:.0f} KB): {out_path}")
+            return out_path
+
+    print(f"[UYARI] Görsel en yüksek sıkıştırmada bile {MAX_IMAGE_BYTES//(1024*1024)} MB "
+          f"altına inmedi; yine de en küçük hali deneniyor.")
+    return out_path if os.path.exists(out_path) else image_path
+
 
 def main():
     print("\n" + "="*60)
@@ -67,7 +179,28 @@ def main():
         else:
             print("[OCR] Tarih ve saat bilgisi videodan otomatik okunamadı.")
     else:
-        print("[WARNING] 'videolar' klasöründe herhangi bir video bulunamadı!")
+        # Video yok: dash-cam fotoğrafında da GPS bindirmesi ve tarih basılı olduğu için,
+        # klasörde hazır bir görsel varsa konum/tarihi doğrudan ondan okuyabiliriz.
+        hazir_gorsel = find_image_in_folder(videolar_folder)
+        if hazir_gorsel:
+            print(f"[INFO] Video yok; hazır görsel bulundu: {hazir_gorsel}")
+            print("[INFO] Fotoğraftan GPS koordinatları ve tarih/saat okunmaya başlanıyor...")
+            from ocr_helper import analyze_image_metadata
+            gps_coords, ocr_dt = analyze_image_metadata(hazir_gorsel)
+
+            if gps_coords and gps_coords[0] is not None and gps_coords[1] is not None:
+                latitude, longitude = gps_coords
+                print(f"[OCR] Başarılı: Otomatik koordinatlar okundu -> {latitude}, {longitude}")
+            else:
+                print("[OCR] GPS koordinatları fotoğraftan otomatik okunamadı.")
+
+            if ocr_dt:
+                datetime_str = ocr_dt
+                print(f"[OCR] Başarılı: Otomatik tarih/saat okundu -> {datetime_str}")
+            else:
+                print("[OCR] Tarih ve saat bilgisi fotoğraftan otomatik okunamadı.")
+        else:
+            print("[WARNING] 'videolar' klasöründe video veya hazır görsel bulunamadı!")
         video_path = "VIDEO_BULUNAMADI"
         
     # 2. Eksik Bilgiler İçin Kullanıcıdan Girdi Alımı
@@ -155,8 +288,66 @@ def main():
 
     # Açıklama metnini son haline getir
     description_text = f"Tarih/Saat: {datetime_str}\nPlaka: {plaka}\nOlay Detayı: {olay_detayi}"
-    
-    # 4. Selenium Form Doldurma Adımı
+
+    # Site olay açıklamasında en az 50 karakter istiyor; kısa metinde 2. adım kilitleniyor.
+    while len(description_text) < 50:
+        print(f"\n[UYARI] Açıklama {len(description_text)} karakter; site en az 50 karakter istiyor.")
+        olay_detayi = input("Olay detayını biraz daha ayrıntılı yazın: ").strip()
+        description_text = f"Tarih/Saat: {datetime_str}\nPlaka: {plaka}\nOlay Detayı: {olay_detayi}"
+
+    # 4. Yüklenecek görselin hazırlanması
+    # Site (v1.1.38) video yüklemeyi kaldırdı: yalnızca jpg/jpeg/png kabul ediliyor.
+    image_path = find_image_in_folder(videolar_folder)
+    if image_path:
+        print(f"\n[INFO] Yüklenecek görsel bulundu: {image_path}")
+    elif video_path and video_path != "VIDEO_BULUNAMADI":
+        print("\n[INFO] Site artık video kabul etmiyor; videodan bir kare çıkarılacak.")
+        saniye = 5
+        while True:
+            girdi = input(f"Kare hangi saniyeden alınsın? [{saniye}] (görselsiz devam için 'yok'): ").strip()
+            if girdi.lower() in ("yok", "hayır", "hayir"):
+                image_path = None
+                break
+            if girdi:
+                try:
+                    saniye = int(girdi)
+                except ValueError:
+                    print("[HATA] Saniye bir sayı olmalı.")
+                    continue
+            image_path = prepare_image_from_video(video_path, at_seconds=saniye)
+            if not image_path:
+                break
+            onay = input("Bu kare kullanılsın mı? (ENTER = evet, başka saniye için sayı yazın): ").strip()
+            if not onay:
+                break
+            try:
+                saniye = int(onay)
+            except ValueError:
+                break
+    else:
+        image_path = None
+
+    # Görsel siteye uygun mu? Büyük bir PNG/fotoğraf ya da 5 MB'ı aşan bir kare ise
+    # site reddediyor; göndermeden önce JPEG'e sıkıştırıp sınırın altına indiriyoruz.
+    if image_path:
+        image_path = compress_image_for_upload(image_path)
+
+    # 4b. Videoyu Drive'a yükleyip linkini açıklamaya ekle
+    # Site videoyu forma kabul etmiyor (eklense bile sessizce düşüyor), bu yüzden
+    # kaydın kendisi ancak bu linkle iletilebiliyor.
+    if video_path and video_path != "VIDEO_BULUNAMADI" and os.path.exists(video_path):
+        if not drive_uploader.is_configured():
+            print(f"\n[UYARI] {drive_uploader.setup_hint()}")
+            print("[UYARI] İhbar, video linki olmadan sürdürülecek.")
+        elif input("\nVideo Drive'a yüklenip linki ihbara eklensin mi? (E/h): ").strip().lower() not in ("h", "hayir", "hayır", "n"):
+            try:
+                link = drive_uploader.upload_and_get_link(video_path)
+                description_text = drive_uploader.append_link_to_description(description_text, link)
+            except drive_uploader.DriveUploadError as e:
+                print(f"[UYARI] Video Drive'a yüklenemedi: {e}")
+                print("[UYARI] İhbar, video linki olmadan sürdürülüyor.")
+
+    # 5. Selenium Form Doldurma Adımı
     print("\n[INFO] Tarayıcı başlatılıyor...")
     
     try:
@@ -166,13 +357,16 @@ def main():
         driver = webdriver.Chrome(options=options)
         filler = IhbarFormFiller(driver)
         
-        if not video_path or video_path == "VIDEO_BULUNAMADI":
-            print(f"[WARNING] Yüklenecek video dosyası bulunamadığı için form video yüklenmeden doldurulacaktır.")
+        if not image_path:
+            print("[WARNING] Yüklenecek görsel olmadığı için form görselsiz doldurulacaktır.")
         else:
-            print(f"[INFO] Yükleme için seçilen video: {video_path}")
-            
+            print(f"[INFO] Yükleme için seçilen görsel: {image_path}")
+
         # Formu doldur
-        filler.fill_form(address_info, video_path, description_text)
+        gonderildi = filler.fill_form(address_info, image_path or "GORSEL_BULUNAMADI",
+                                      description_text)
+        if not gonderildi:
+            print("\n[SONUÇ] İhbar GÖNDERİLMEDİ. Yukarıdaki hatayı giderip yeniden dene.")
         
         print("\n[INFO] İşlem tamamlandı. Tarayıcı kontrolünüz için açık bırakılıyor.")
         

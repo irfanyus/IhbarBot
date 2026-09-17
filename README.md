@@ -4,13 +4,33 @@ Araç kamerası (dash-cam) videolarından trafik ihlali ihbarını yarı otomati
 
 > **Not:** Bot formu yalnızca **doldurur**. hCaptcha doğrulamasını ve SMS onayını siz elle yaparsınız; gönderim her zaman sizin kontrolünüzdedir.
 
+> ⚠️ **19.08.2026 — site yenilendi (v1.1.38).** Form artık 3 adımlı ve **video yüklenemiyor**: yalnızca jpg/jpeg/png (en fazla 5 MB) kabul ediliyor. Bot bu yüzden videodan bir kare çıkarıp onu yüklüyor.
+>
+> ⚠️ **Siteye elle video eklerseniz sessizce kaybolur.** Dosya seçicide "Tüm dosyalar"a geçip bir mp4 seçtiğinizde site kartı gösterir ve `Devam Et` açılır — eklenmiş gibi görünür. Ama site 1 MB üstü her dosyayı önce tarayıcıda görsele sıkıştırmaya çalışıyor, bu video için başarısız oluyor ve dosya forma hiç işlenmiyor; hata mesajı da çıkmıyor. İhbar **eksiz** gider. Videodan kare çıkarmanın tek sebebi bu.
+>
+> Ayrıca sitenin **görsel tarama servisi şu an arızalı**: görsel eklendiği anda `Devam Et` kilitleniyor, tarama hiç bitmiyor ve görseli formdan geri çıkarmak mümkün olmuyor. Bot 60 saniye bekleyip formu **görselsiz** olarak baştan dolduruyor. Servis düzelene kadar ihbarlar görselsiz gidiyor; istersen arayüzdeki **"Görseli yükle"** kutusunu kapatarak bu 60 saniyelik denemeyi hiç yaşamazsın.
+
+## Drive kurulumu (tek seferlik)
+
+Videolar `rclone` ile yükleniyor. Kurulum bir kez yapılır:
+
+```bash
+rclone config create gdrive drive
+```
+
+Komut tarayıcıda Google girişini açar; onayladıktan sonra bot videoları Drive'daki
+**İhbarBot Videoları** klasörüne yükleyip linki ihbara ekler. Klasör kimliği
+`config.json` içindeki `drive_klasor_id` alanında tutulur.
+
 ## Neler yapar?
 
 - `videolar/` klasöründeki videoyu otomatik bulur
 - Dosya adından plakayı okur (örn. `34ABC123.mp4` → plaka `34ABC123`; birden çok plaka boşlukla ayrılabilir: `34ABC123 06XYZ789.mp4`)
-- Video karelerinden macOS Vision OCR ile GPS koordinatı ve tarih/saat çıkarır
-- Koordinatlardan il / ilçe / mahalle / sokak bilgisini çözer (OpenStreetMap Nominatim)
-- Chrome'u açıp ihbar formunu doldurur: adres, güvenlik birimi, olay açıklaması, video eki, KVKK onayları ve kişisel bilgiler
+- Video karelerinden macOS Vision OCR ile GPS koordinatı ve tarih/saat çıkarır (bindirme okunamazsa kareyi kırpıp büyüterek yeniden dener)
+- Koordinatlardan il / ilçe / mahalle / sokak bilgisini çözer (OpenStreetMap Nominatim; yolun adı OSM'de girilmemişse çevredeki en yakın isimli caddeyi Overpass ile bulur)
+- Videodan yüklenecek kareyi (jpg) çıkarır — site video kabul etmediği için
+- Videonun kendisini Google Drive'a yükleyip paylaşım linkini ihbar açıklamasına ekler (yalnızca o dosya paylaşıma açılır, klasör gizli kalır)
+- Chrome'u açıp ihbar formunun üç adımını da doldurur: adres, güvenlik birimi, olay açıklaması, görsel, KVKK onayları ve kişisel bilgiler
 - hCaptcha ve SMS adımlarında durup sizi bekler
 
 ## Gereksinimler
@@ -65,6 +85,10 @@ python3 app.py
 
 3. Bot videoyu tarar; koordinat, tarih/saat ve plakayı otomatik doldurur. Okunamayan alanları elle girin, "Adresi Sorgula" ile adresi kontrol edin.
 
+   Aynı anda videonun 5. saniyesinden bir kare çıkarılıp **Görseli yükle** satırına konur. Başka bir an için `sn` kutusuna saniye yazıp **Kare Al**'a, hazır bir fotoğraf için **Seç...**'e basın. `videolar/` klasörüne koyduğunuz bir jpg/png varsa o tercih edilir.
+
+   > Olay açıklaması en az **50 karakter** olmalı — site daha kısasını kabul etmiyor.
+
 4. **İHBAR OTOMASYONUNU BAŞLAT**'a tıklayın. Chrome açılır ve form doldurulur.
 
 5. Tarayıcıda **hCaptcha'yı elle çözün**, ardından arayüzden "Devam Et"e basın.
@@ -77,7 +101,7 @@ python3 app.py
 |---|---|
 | `app.py` | Tkinter grafik arayüzü (önerilen giriş noktası) |
 | `main.py` | Terminal (CLI) sürümü |
-| `form_filler.py` | Selenium ile form doldurma mantığı |
+| `form_filler.py` | Selenium ile 3 adımlı formu doldurma mantığı |
 | `ocr_helper.py` | ffmpeg ile kare çıkarma + OCR sonuçlarını ayrıştırma |
 | `ocr_helper.swift` | macOS Vision API ile metin tanıma |
 | `geocoder.py` | Koordinat → adres çözümleme (Nominatim) |

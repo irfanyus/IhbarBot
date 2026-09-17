@@ -2,19 +2,57 @@ import subprocess
 import os
 import re
 
+# Dash-cam GPS bindirmesi genelde karenin alt şeridinde ve küçük punto olduğu için
+# tam karede Vision OCR bazı parçaları düşürüyor (örn. 'E29.' kaybolup geriye yalnız
+# '367887' kalıyor). Bu yüzden kareyi kırpıp büyüterek birkaç kez daha okutuyoruz.
+# Sıra önemli: önce ham kare (mevcut davranış), sonra giderek agresifleşen varyantlar.
+OCR_VARIANT_FILTERS = [
+    None,  # ham kare
+    "crop=iw/2:ih*0.12:0:ih*0.88,scale=iw*3:ih*3:flags=lanczos,eq=contrast=1.4",   # sol alt köşe, 3x
+    "crop=iw:ih*0.12:0:ih*0.88,scale=iw*2:ih*2:flags=lanczos,eq=contrast=1.3",     # tüm alt şerit, 2x
+    "crop=iw/2:ih*0.12:0:0,scale=iw*3:ih*3:flags=lanczos,eq=contrast=1.4",         # sol üst köşe (üstte yazan kameralar)
+]
+
+
+def _find_ffmpeg():
+    """ffmpeg'i bilinen kurulum yollarında arar, bulamazsa PATH'e güvenir."""
+    for path in ('/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg'):
+        if os.path.exists(path):
+            return path
+    return 'ffmpeg'
+
+
+def get_video_duration(video_path):
+    """Videonun saniye cinsinden süresini döndürür; okunamazsa None."""
+    ffprobe = _find_ffmpeg().replace('ffmpeg', 'ffprobe')
+    try:
+        out = subprocess.run(
+            [ffprobe, '-v', 'error', '-show_entries', 'format=duration',
+             '-of', 'default=noprint_wrappers=1:nokey=1', video_path],
+            capture_output=True, text=True, check=True,
+        )
+        return float(out.stdout.strip())
+    except Exception:
+        return None
+
+
+def apply_video_filter(image_path, output_image_path, vf):
+    """Bir kareye ffmpeg video filtresi (kırpma/büyütme/kontrast) uygular."""
+    try:
+        cmd = [_find_ffmpeg(), '-y', '-i', image_path, '-vf', vf, output_image_path]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        return os.path.exists(output_image_path)
+    except Exception as e:
+        print(f"[OCR] Kare ön işleme hatası: {e}")
+        return False
+
+
 def extract_frame_from_video(video_path, output_image_path, at_seconds=1):
     """
     Extracts a single frame at the given second of the video using ffmpeg.
     """
-    # Look for ffmpeg in common paths, default to 'ffmpeg' if not found
-    ffmpeg_paths = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg', 'ffmpeg']
-    ffmpeg_cmd = 'ffmpeg'
-    for path in ffmpeg_paths:
-        if os.path.exists(path) or path == 'ffmpeg':
-            ffmpeg_cmd = path
-            if path != 'ffmpeg':
-                break
-                
+    ffmpeg_cmd = _find_ffmpeg()
+
     try:
         print(f"[OCR] ffmpeg ile videodan referans karesi çıkarılıyor ({at_seconds}. saniye)...")
         cmd = [
@@ -79,10 +117,22 @@ def parse_coordinates(lines):
         elif direction in ('E', 'W') and lon is None:
             lon = value if direction == 'E' else -value
 
+    # --- Step 2b: 'E29\u2122 367887' – yön+tam kısım ile ondalık arasına OCR çöpü girmiş ---
+    # (Vision, bindirmedeki '.' karakterini sık sık '\u2122', '~', '-' gibi okuyor.)
+    if lat is None or lon is None:
+        for m in re.finditer(r'([NSEW])\s*(\d{1,3})[^\dA-Za-z]{1,3}\s*(\d{4,8})\b', joined, re.IGNORECASE):
+            direction = m.group(1).upper()
+            value = float(f"{m.group(2)}.{m.group(3)}")
+            if direction in ('N', 'S') and lat is None:
+                lat = value if direction == 'N' else -value
+            elif direction in ('E', 'W') and lon is None:
+                lon = value if direction == 'E' else -value
+
     # --- Step 3: fallback – 'E29' on one line, '430-1599' on next ---
     if lat is None or lon is None:
         for i, line in enumerate(lines):
-            m = re.match(r'^([NSEW])\s*(\d{1,3})\s*$', line.strip(), re.IGNORECASE)
+            # Satırın başında/sonunda OCR çöpü olabilir: '_E29', 'E29\u2122', 'N40 .'
+            m = re.match(r'^[^\dA-Za-z]*([NSEW])\s*(\d{1,3})[^\d]*$', line.strip(), re.IGNORECASE)
             if m and i + 1 < len(lines):
                 direction = m.group(1).upper()
                 integer_part = m.group(2)
@@ -99,6 +149,12 @@ def parse_coordinates(lines):
                             lon = value if direction == 'E' else -value
                     except ValueError:
                         pass
+
+    # OCR çöpünden gelen saçma değerleri ele: enlem ±90, boylam ±180 dışı olamaz.
+    if lat is not None and abs(lat) > 90:
+        lat = None
+    if lon is not None and abs(lon) > 180:
+        lon = None
 
     return lat, lon
 
@@ -129,28 +185,88 @@ def parse_datetime(lines):
 
     return None
 
+def ocr_frame_variants(image_path, work_dir=None):
+    """
+    Bir kareyi önce ham, sonra kırpılmış/büyütülmüş varyantlarıyla OCR'dan geçirir.
+    Her varyantın satır listesini tek tek üretir (generator) — çağıran taraf aradığını
+    bulduğunda kalan varyantları çalıştırmadan çıkabilir.
+    """
+    work_dir = work_dir or os.path.dirname(os.path.abspath(image_path))
+    for idx, vf in enumerate(OCR_VARIANT_FILTERS):
+        if vf is None:
+            target = image_path
+        else:
+            target = os.path.join(work_dir, f"temp_ocr_variant_{idx}.png")
+            print(f"[OCR] Bindirme okunamadı, kare kırpılıp büyütülerek yeniden deneniyor (varyant {idx})...")
+            if not apply_video_filter(image_path, target, vf):
+                continue
+        try:
+            yield run_vision_ocr(target)
+        finally:
+            if target != image_path and os.path.exists(target):
+                try:
+                    os.remove(target)
+                except OSError:
+                    pass
+
+
+def read_metadata_from_image(image_path, work_dir=None, lat=None, lon=None, dt_str=None):
+    """
+    Tek bir görseli OCR varyantlarından geçirip eksik koordinat/tarih alanlarını doldurur.
+    Zaten bilinen (lat, lon, dt_str) değerlerini olduğu gibi korur; yalnızca None olanları
+    doldurmaya çalışır. Videonun kare kare taraması da, hazır bir fotoğraf da bunu kullanır.
+    """
+    for lines in ocr_frame_variants(image_path, work_dir=work_dir):
+        if not lines:
+            continue
+        if lat is None or lon is None:
+            new_lat, new_lon = parse_coordinates(lines)
+            lat = lat if lat is not None else new_lat
+            lon = lon if lon is not None else new_lon
+        if dt_str is None:
+            dt_str = parse_datetime(lines)
+        if lat is not None and lon is not None and dt_str:
+            break
+    return lat, lon, dt_str
+
+
+def analyze_image_metadata(image_path):
+    """
+    Hazır bir dash-cam fotoğrafından koordinat ve tarih/saati okur.
+    Dash-cam görselinde de GPS bindirmesi ve tarih basılı olduğu için, video yoksa
+    doğrudan bu görsel taranabilir. Çıktı biçimi analyze_video_metadata ile aynıdır:
+    ((lat, lon), dt_str).
+    """
+    work_dir = os.path.dirname(os.path.abspath(image_path))
+    lat, lon, dt_str = read_metadata_from_image(image_path, work_dir=work_dir)
+    return (lat, lon), dt_str
+
+
 def analyze_video_metadata(video_path):
     """
     Extracts coordinates and datetime from a video via frame OCR.
     Tries several timestamps: GPS overlay may be missing on early frames
     (no GPS fix yet), so keep sampling until both fields are found.
+    Her karede ayrıca birkaç ön işleme varyantı denenir; küçük punto bindirmede
+    Vision tam kareden 'E29.' gibi parçaları düşürebiliyor (bkz. OCR_VARIANT_FILTERS).
     """
-    temp_image = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp_ocr_frame.png")
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    temp_image = os.path.join(base_dir, "temp_ocr_frame.png")
 
     lat, lon, dt_str = None, None, None
 
-    for ts in (1, 3, 5, 10, 20, 40):
+    # Videodan uzun bir saniye istenirse ffmpeg boş çıktı üretiyor; 3 sn'lik bir klipte
+    # 5. saniyeyi istemek hiç kare alamamak demek. Süreyi bilip listeyi kırpıyoruz.
+    sample_seconds = [1, 3, 5, 10, 20, 40]
+    duration = get_video_duration(video_path)
+    if duration:
+        sample_seconds = [t for t in sample_seconds if t < duration] or [0]
+
+    for ts in sample_seconds:
         if not extract_frame_from_video(video_path, temp_image, at_seconds=ts):
             break  # video bitti / kare çıkarılamadı
 
-        lines = run_vision_ocr(temp_image)
-        if lines:
-            if lat is None or lon is None:
-                new_lat, new_lon = parse_coordinates(lines)
-                lat = lat if lat is not None else new_lat
-                lon = lon if lon is not None else new_lon
-            if dt_str is None:
-                dt_str = parse_datetime(lines)
+        lat, lon, dt_str = read_metadata_from_image(temp_image, base_dir, lat, lon, dt_str)
 
         if lat is not None and lon is not None and dt_str:
             break
