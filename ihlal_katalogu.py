@@ -22,6 +22,10 @@ REHBER_YILI = 2026
 KAYNAK_URL = ("https://www.trafik.gov.tr/kurumlar/trafik.gov.tr/"
               "trafik-para-cezasi/2026/2026-YILI-TRAFIK-IDARI-PARA-CEZA-REHBERI.pdf")
 
+# form_filler açıklamayı bu uzunlukta kesiyor; dayanak metni sınırı aşarsa
+# kırpılmak yerine madde başlıklarına iniyor (bkz. dayanak_ekle).
+AZAMI_ACIKLAMA = 3000
+
 
 @dataclass(frozen=True)
 class Ihlal:
@@ -36,9 +40,13 @@ class Ihlal:
     # bkz. DURAN_ARAC_BELIRTECLERI.
     grup: str = None
 
-    def dayanak_metni(self) -> str:
-        """İhbar açıklamasına eklenecek tek satırlık kanuni dayanak."""
-        metin = f"Kanuni dayanak: {KANUN_ADI} madde {self.madde} - {self.resmi_tanim}"
+    def dayanak_metni(self, kisa: bool = False) -> str:
+        """İhbar açıklamasına eklenecek tek satırlık kanuni dayanak.
+
+        kisa=True olduğunda rehberdeki uzun resmî tanım yerine madde başlığı
+        yazılıyor; açıklama karakter sınırını aşacaksa bu biçime düşülüyor."""
+        tanim = self.etiket if kisa else self.resmi_tanim
+        metin = f"Kanuni dayanak: {KANUN_ADI} madde {self.madde} - {tanim}"
         if self.ceza_puani:
             metin += f" ({self.ceza_puani} ceza puanı)"
         return metin + "."
@@ -382,7 +390,7 @@ def etiketler() -> list:
     return [ihlal.etiket for ihlal in KATALOG]
 
 
-def dayanak_metni(ihlaller) -> str:
+def dayanak_metni(ihlaller, kisa: bool = False) -> str:
     """Bir veya birden çok ihlal için tek satırlık kanuni dayanak metni.
 
     Tek ihlalde madde doğrudan cümleye giriyor; birden fazlasında kanun adı
@@ -393,22 +401,27 @@ def dayanak_metni(ihlaller) -> str:
     if not ihlaller:
         return ""
     if len(ihlaller) == 1:
-        return ihlaller[0].dayanak_metni()
+        return ihlaller[0].dayanak_metni(kisa)
     parcalar = []
     for sira, ihlal in enumerate(ihlaller, 1):
-        parca = f"{sira}) Madde {ihlal.madde} - {ihlal.resmi_tanim}"
+        parca = f"{sira}) Madde {ihlal.madde} - {ihlal.etiket if kisa else ihlal.resmi_tanim}"
         if ihlal.ceza_puani:
             parca += f" ({ihlal.ceza_puani} ceza puanı)"
         parcalar.append(parca + ".")
     return f"Kanuni dayanak: {KANUN_ADI}. " + " ".join(parcalar)
 
 
-def dayanak_ekle(aciklama: str, ihlaller=None) -> tuple:
+def dayanak_ekle(aciklama: str, ihlaller=None, azami: int = AZAMI_ACIKLAMA) -> tuple:
     """Açıklamanın sonuna kanuni dayanağı ekler; (yeni_metin, ihlal_listesi) döner.
 
     ihlaller tek bir Ihlal de olabilir, liste de. Hiç verilmezse açıklamadan
     otomatik eşleştirilir (tek madde). Eşleşme yoksa metin olduğu gibi kalır -
-    uydurma madde yazmaktansa hiç yazmamak doğrusu."""
+    uydurma madde yazmaktansa hiç yazmamak doğrusu.
+
+    Çok sayıda madde seçilip metin `azami`yi aşarsa resmî tanımlar yerine madde
+    başlıkları yazılıyor. Sessizce kırpmaktansa kısaltmak gerekiyor: form_filler
+    açıklamayı 3000 karakterde kesiyor ve kesilen yer cümlenin ortası oluyor,
+    yani son madde yarım kalmış halde resmi ihbara giriyordu."""
     if ihlaller is None:
         ihlaller = [eslestir(aciklama)]
     elif isinstance(ihlaller, Ihlal):
@@ -417,6 +430,10 @@ def dayanak_ekle(aciklama: str, ihlaller=None) -> tuple:
     if not ihlaller:
         return aciklama, []
     dayanak = dayanak_metni(ihlaller)
+    if len(aciklama) + 1 + len(dayanak) > azami:
+        dayanak = dayanak_metni(ihlaller, kisa=True)
+        print(f"[UYARI] Açıklama {azami} karakter sınırını aşıyordu; kanuni dayanak "
+              f"resmî tanımlardan madde başlıklarına indirildi.")
     if dayanak in aciklama:
         return aciklama, ihlaller
     return f"{aciklama}\n{dayanak}", ihlaller
