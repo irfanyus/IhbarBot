@@ -75,13 +75,19 @@ KATALOG = (
     Ihlal("kirmizi_isik", "Kırmızı ışık ihlali", "47/1-b",
           "Kırmızı ışık kuralına uymamak", 20,
           "1. ihlalde 5.000 TL, bir yıl içindeki tekrarlarda 80.000 TL'ye kadar",
-          ("kirmizi isik", "kirmizi isikta", "kirmiziya", "isik ihlali", "kirmizi")),
+          ("kirmizi isik", "kirmizi isikta", "kirmiziya", "kirmizi isik ihlali",
+           "kirmizi")),
     Ihlal("trafik_isareti", "Trafik levhası/yer işaretlemesi ihlali", "47/1-c",
           "Trafik işaret levhaları, cihazları ve yer işaretlemeleri ile belirtilen "
           "veya gösterilen hususlara uymamak", 20, "1.000 TL",
           ("levha", "trafik isareti", "yer isaretlemesi", "yasak isaret", "durak cizgisi",
            "girisi olmayan yol", "girilmez", "tarali alan", "tarali alana",
            "tarali bolge", "beyaz tarali", "tarali")),
+    Ihlal("sari_isik", "Işıklı trafik işaretine uymamak (sarı ışık)", "47/1-c",
+          "Trafik işaret levhaları, cihazları ve yer işaretlemeleri ile belirtilen "
+          "veya gösterilen hususlara uymamak", 20, "1.000 TL",
+          ("sari isik", "sari isikta", "sari yanarken", "sari isik ihlali",
+           "sariya basti")),
     Ihlal("gorevli_isareti", "Görevlinin uyarı ve işaretine uymamak", "47/1-a",
           "Trafiği düzenleme ve denetimle görevli trafik kolluğu veya özel kıyafetli "
           "veya işaret taşıyan diğer yetkili kişilerin uyarı ve işaretlerine uymamak",
