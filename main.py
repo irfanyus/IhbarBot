@@ -429,6 +429,7 @@ def main():
     # 5. Selenium Form Doldurma Adımı
     print("\n[INFO] Tarayıcı başlatılıyor...")
     
+    driver = None
     try:
         options = webdriver.ChromeOptions()
         options.add_experimental_option("detach", True)
@@ -452,6 +453,17 @@ def main():
     except Exception as e:
         print(f"\n[WARNING/ERROR] Selenium çalışırken hata oluştu: {e}")
         print("Lütfen Chrome sürümünüz ile ChromeDriver sürümünüzün uyumlu olduğundan emin olun.")
+    finally:
+        # Chrome kullanıcıda kalsın diye driver.quit() çağrılmıyor: detach=True
+        # olsa bile quit() Chrome'u da kapatıyor. service.stop() yalnızca
+        # chromedriver'ı sonlandırıyor; bu olmadan her çalıştırmadan geriye
+        # öksüz bir chromedriver süreci kalıyordu.
+        if driver is not None:
+            try:
+                driver.service.stop()
+                print("[INFO] chromedriver kapatıldı; Chrome penceresi sizde kalıyor.")
+            except Exception as e:
+                print(f"[UYARI] chromedriver kapatılamadı: {e}")
 
 if __name__ == "__main__":
     main()

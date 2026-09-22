@@ -12,7 +12,7 @@ from tkinter.scrolledtext import ScrolledText
 
 # Local Modules
 from geocoder import reverse_geocode
-from form_filler import IhbarFormFiller
+from form_filler import IhbarFormFiller, kisa_hata
 from ocr_helper import analyze_video_metadata, analyze_image_metadata
 from main import (find_video_in_folder, parse_plates_from_filename,
                   find_image_in_folder, prepare_image_from_video,
@@ -44,6 +44,7 @@ class StdoutRedirector:
 class IhbarBotGUI:
     def __init__(self, root):
         self.root = root
+        self.current_driver = None
         self.root.title("112 Trafik İhbar Asistanı")
         self.root.geometry("700x780")
         self.root.minsize(600, 640)
@@ -795,7 +796,7 @@ class IhbarBotGUI:
                 options.add_argument("--no-sandbox")
                 options.add_argument("--disable-dev-shm-usage")
                 
-                # Keep a reference to prevent garbage collection from closing browser
+                # Referans saklanıyor ki iş bitince service.stop() çağrılabilsin.
                 self.current_driver = webdriver.Chrome(options=options)
                 filler = IhbarFormFiller(self.current_driver)
                 
@@ -809,10 +810,38 @@ class IhbarBotGUI:
                 self.msg_queue.put(("automation_done", False))
             except Exception as e:
                 self.msg_queue.put(("automation_error", str(e)))
-                
+            finally:
+                # fill_form döndüğünde kullanıcı etkileşimi (hCaptcha/SMS) bitmiş
+                # oluyor; tarayıcıya artık Selenium'un ihtiyacı yok.
+                self._chromedriver_birak()
+
         threading.Thread(target=run_selenium, daemon=True).start()
+
+    def _chromedriver_birak(self):
+        """chromedriver sürecini durdurur, Chrome penceresini açık bırakır.
+
+        driver.quit() KULLANILMIYOR: detach=True olmasına rağmen quit() önce
+        oturumu kapatıp Chrome'u da öldürüyor, kullanıcı doldurulmuş formu
+        kaybediyor. service.stop() yalnızca chromedriver'ı sonlandırıyor.
+        Bu çağrı olmadığı için her ihbardan geriye, kullanıcı Chrome'u
+        kapattıktan sonra bile çalışmaya devam eden bir chromedriver kalıyordu."""
+        driver = getattr(self, "current_driver", None)
+        if driver is None:
+            return
+        self.current_driver = None
+        try:
+            driver.service.stop()
+            print("[INFO] chromedriver kapatıldı; Chrome penceresi sizde kalıyor.")
+        except Exception as e:
+            print(f"[UYARI] chromedriver kapatılamadı: {kisa_hata(e)}")
+
+    def on_close(self):
+        """Pencere kapatılırken arkada chromedriver bırakmadan çık."""
+        self._chromedriver_birak()
+        self.root.destroy()
 
 if __name__ == "__main__":
     root = tk.Tk()
     app = IhbarBotGUI(root)
+    root.protocol("WM_DELETE_WINDOW", app.on_close)
     root.mainloop()

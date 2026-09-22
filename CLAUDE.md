@@ -80,6 +80,14 @@ These are load-bearing workarounds baked into `form_filler.py`; don't "simplify"
 - **hCaptcha** (`id="h-captcha"`, sitekey `e4eefc1a-…`) sits on step 3 and is always solved by the user. Pressing that page's `Devam Et` is what triggers the SMS.
 - **The SMS code is an Ant `Input.OTP`** — one `input` per digit under `.ant-otp`, not a single field with a guessable id. `_fill_otp()` types one character per box and deliberately does **not** press the confirm button.
 
+## Browser lifecycle
+
+`detach=True` on the ChromeOptions is what lets the user finish hCaptcha, the SMS code and the final submit after `fill_form()` returns — Selenium is done, the window is not. But it only stops Chrome from dying when chromedriver *exits on its own*; **`driver.quit()` still closes Chrome**, because quit ends the session (closing every window) before shutting the service down. Verified 22.09.2026: with detach set, `quit()` took the Chrome process from 1 to 0.
+
+So neither entry point calls `quit()`. They call **`driver.service.stop()`**, which reaps chromedriver and leaves the window alone (same test: chromedriver 4 → 3, Chrome stays at 1). `app.py` does it in a `finally` around the automation thread (`_chromedriver_birak()`, also wired to `on_close` via `WM_DELETE_WINDOW`) and `main.py` in a `finally` around its Selenium block. `_chromedriver_birak()` clears `self.current_driver` first so a second call is a no-op.
+
+Until 22.09.2026 there was no teardown at all, and the comment above the driver call claimed the reference existed "to prevent garbage collection from closing browser" — which is `detach`'s job, not the reference's. Every run leaked a chromedriver that outlived the Chrome window the user had already closed; three had piled up on the dev machine, the oldest running over an hour.
+
 ## Other notes
 
 - `arsiv/` holds old exploratory Selenium test scripts (from working out the quirks above) plus `form_filler_eski_site.py.bak`, the pre-redesign single-page filler kept for reference; the whole folder is gitignored and not part of the active pipeline.
