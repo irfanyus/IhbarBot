@@ -619,15 +619,24 @@ class IhbarBotGUI:
                             self.add_history_entry(self.plate_var.get().strip())
                             self.ihbar_recorded = True
                         messagebox.showinfo("Başarılı", "İhbar formu hazırlığı tamamlandı! Tarayıcı kontrolünüz için açık bırakılmıştır.")
-                    else:
-                        # Form gönderilemedi (son 'Devam Et' tutmadı, tarayıcı kapandı vb.).
-                        # Geçmişe YAZILMAZ: gönderilmemiş ihbarı "ihbar edildi" saymak,
-                        # aynı aracı bir daha ihbar etmemeye yol açıyor.
-                        messagebox.showwarning(
-                            "İhbar gönderilmedi",
-                            "Form tamamlanamadı, ihbar gönderilmedi.\n\n"
-                            "Ayrıntı için log penceresine bak. İhbar geçmişine eklenmedi; "
-                            "aracı yeniden ihbar edebilirsin.")
+                    elif not getattr(self, 'ihbar_recorded', False):
+                        # Otomasyon gönderimi doğrulayamadı. Kendiliğinden geçmişe
+                        # YAZMIYOR - gönderilmemiş ihbarı "ihbar edildi" saymak aynı
+                        # aracın bir daha ihbar edilmemesine yol açıyor. Ama tersi de
+                        # oluyor: kullanıcı formu elden gönderdiğinde otomasyon bunu
+                        # göremiyor ve gerçek bir ihbar kayda geçmiyordu. Kararı
+                        # gönderimi tek bilen tarafa, kullanıcıya bırakıyoruz.
+                        if messagebox.askyesno(
+                                "İhbar gönderildi mi?",
+                                "Otomasyon ihbarın gönderildiğini doğrulayamadı.\n\n"
+                                "İhbarı tarayıcıdan elle tamamladıysanız geçmişe "
+                                "ekleyebilirim.\n\n"
+                                "Ayrıntı için log penceresine bakabilirsiniz.\n\n"
+                                "İhbar geçmişine eklensin mi?"):
+                            self.add_history_entry(self.plate_var.get().strip())
+                            self.ihbar_recorded = True
+                        else:
+                            print("[INFO] İhbar geçmişine eklenmedi; aracı yeniden ihbar edebilirsin.")
                     self.run_btn.configure(state="normal")
                     self.interactive_frame.grid_remove()
 

@@ -256,14 +256,31 @@ class IhbarFormFiller:
         # ── Gönder (son adımın 'Devam Et'i SMS doğrulamasını başlatır) ─
         print("[INFO] Son adımın 'Devam Et' butonuna tıklanıyor (SMS gönderilecek)...")
         if not self._click_element(SELECTORS["devam_et"], "Devam Et (Gönder)"):
-            # Buraya kadar gelip son tıklama tutmadıysa ihbar GÖNDERİLMEDİ.
-            # Eskiden hata yutuluyor, akış SMS adımına geçiyor ve panel ihbarı
-            # geçmişe "gönderildi" diye yazıyordu (10.09.2026).
-            print("[HATA] İhbar GÖNDERİLMEDİ — son adımın 'Devam Et'ine basılamadı.")
-            print("       SMS gelmeyecek; ihbar geçmişine de eklenmeyecek.")
-            print("       Tarayıcı hâlâ açıksa formu elden gönderebilirsin, "
-                  "kapandıysa ihbarı baştan başlatman gerekiyor.")
-            return False
+            # Buraya kadar gelip son tıklama tutmadıysa ihbar GÖNDERİLMEMİŞ
+            # OLABİLİR - ama kesin değil. En sık sebep: kullanıcı hCaptcha'yı
+            # yaparken sitenin kendi 'Devam Et'ine de basmış oluyor, sayfa SMS
+            # adımına geçiyor ve buton artık DOM'da olmadığı için tıklama
+            # başarısız sayılıyordu. 10.09.2026'daki düzeltme bu durumu da
+            # "gönderilmedi" kabul ediyordu; gerçekte gönderilmiş ihbar geçmişe
+            # yazılmıyor, aynı araç tekrar ihbar edilebilir görünüyordu.
+            if self._sms_asamasinda_mi():
+                print("[INFO] Sayfa zaten SMS adımında — ihbar elle gönderilmiş görünüyor.")
+            elif wait_callback:
+                # Kesin karar veremiyoruz. Tarayıcı açık olduğuna göre tek
+                # güvenilir kaynak kullanıcı: 'Devam Et' = gönderdim.
+                print("[UYARI] Son 'Devam Et'e basılamadı ve sayfa SMS adımında görünmüyor.")
+                print("        İhbarı tarayıcıdan elle gönderdiyseniz 'Devam Et'e basın; "
+                      "göndermediyseniz 'TÜMÜNÜ TEMİZLE' ile iptal edin.")
+                wait_callback("gonderim_onayi",
+                              "İhbarı elle gönderdiyseniz 'Devam Et'e basın "
+                              "(göndermediyseniz TÜMÜNÜ TEMİZLE).")
+                print("[INFO] Gönderim kullanıcı tarafından onaylandı.")
+            else:
+                print("[HATA] İhbar GÖNDERİLMEDİ — son adımın 'Devam Et'ine basılamadı.")
+                print("       SMS gelmeyecek; ihbar geçmişine de eklenmeyecek.")
+                print("       Tarayıcı hâlâ açıksa formu elden gönderebilirsin, "
+                      "kapandıysa ihbarı baştan başlatman gerekiyor.")
+                return False
 
         # ── SMS Doğrulama ─────────────────────────────────────────────
         print("\n[WAIT] SMS doğrulama kodu bekleniyor...")
@@ -621,6 +638,22 @@ class IhbarFormFiller:
                   else f"[WARNING] Onaylanamadı: {element_id} — elle işaretleyin.")
         except Exception as e:
             print(f"[ERROR] '{element_id}' onaylanırken hata: {e}")
+
+    def _sms_asamasinda_mi(self) -> bool:
+        """Sayfa SMS doğrulama adımına geçmiş mi (Input.OTP kutuları görünür mü)?
+
+        Son 'Devam Et' tıklaması başarısız döndüğünde gerçekten gönderilmediğini
+        varsaymak yanlış: kullanıcı butona kendisi basmış olabilir, o zaman buton
+        DOM'dan kalkıyor ve tıklama haklı olarak başarısız oluyor. OTP kutularının
+        varlığı gönderimin objektif kanıtı."""
+        try:
+            kutular = self.driver.find_elements(*SELECTORS["otp_inputs"])
+            return any(k.is_displayed() for k in kutular)
+        except Exception as e:
+            if tarayici_kapandi_mi(e):
+                return False
+            print(f"[UYARI] SMS adımı kontrol edilemedi: {kisa_hata(e)}")
+            return False
 
     def _fill_otp(self, sms_code: str):
         """
