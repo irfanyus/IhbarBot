@@ -32,6 +32,9 @@ class Ihlal:
     ceza_puani: int = None
     tutar: str = None     # yalnızca bilgi amaçlı, ihbar metnine yazılmaz
     kelimeler: tuple = field(default_factory=tuple)
+    # "park" / "duraklama" / None(sürüş). eslestir() bu grupla filtreliyor:
+    # bkz. DURAN_ARAC_BELIRTECLERI.
+    grup: str = None
 
     def dayanak_metni(self) -> str:
         """İhbar açıklamasına eklenecek tek satırlık kanuni dayanak."""
@@ -195,24 +198,65 @@ KATALOG = (
     Ihlal("duraklama_yasagi", "Duraklama yasağı ihlali", "60/1-a",
           "Taşıt yolu üzerinde duraklamanın yasaklandığının bir trafik işareti ile "
           "belirtilmiş olduğu yerlerde duraklamak", 10, "1.246 TL",
-          ("duraklama", "durakladi")),
+          ("duraklama", "durakladi"), "duraklama"),
     Ihlal("park_yasagi", "Park yasağı ihlali", "61/1-b",
           "Taşıt yolu üzerinde park etmenin trafik işaretleri ile yasaklandığı "
           "yerlerde park etmek", 10, "1.246 TL",
-          ("park yasagi", "park etti", "hatali park", "park")),
+          ("park yasagi", "park etti", "hatali park", "park"), "park"),
     Ihlal("gecis_yolu_park", "Geçiş yolu önüne/üzerine park", "61/1-c",
           "Taşıt yolu üzerinde geçiş yolları önünde veya üzerinde park etmek",
           10, "1.246 TL",
-          ("gecis yoluna park", "garaj onune", "apartman onune")),
+          ("gecis yoluna park", "garaj onune", "apartman onune"), "park"),
     Ihlal("kaldirima_park", "Yaya yoluna/kaldırıma park", "61/1-n",
           "Yönetmelikte belirtilen haller dışında yaya yollarında park etmek",
           10, "1.246 TL",
           ("kaldirima park", "kaldirimda park", "yaya yoluna park", "yaya yolunda park",
-           "kaldirim uzerine park")),
+           "kaldirim uzerine park"), "park"),
     Ihlal("engelli_park", "Engelli park yerine park", "61/1-o",
           "Taşıt yolu üzerinde engellilerin araçları için ayrılmış park yerlerinde "
           "park etmek", 10, "2.492 TL",
-          ("engelli park", "engelli yerine", "engelli arac yeri")),
+          ("engelli park", "engelli yerine", "engelli arac yeri"), "park"),
+    Ihlal("yasak_yere_park", "Duraklamanın yasak olduğu yere park", "61/1-a",
+          "Taşıt yolu üzerinde duraklamanın yasaklandığı yerlere park etmek",
+          15, "1.246 TL",
+          ("yaya gecidine park", "yaya gecidi uzerine park", "yaya gecidinde park",
+           "gecide park", "kavsaga park", "kavsakta park", "donemece park",
+           "tunele park", "rampaya park", "duraklama yasagi olan"), "park"),
+    Ihlal("duraga_park", "Durak levhasına 15 m içinde park", "61/1-e",
+          "Kamu hizmeti yapan yolcu taşıtlarının duraklarını belirten levhalara iki "
+          "yönden onbeş metrelik mesafe içinde park etmek", 10, "1.246 TL",
+          ("duraga park", "otobus duragina park", "taksi duragina park",
+           "durak yerine park", "durakta park"), "park"),
+    Ihlal("kopruye_park", "Alt/üst geçit veya köprü üzerine park", "61/1-k",
+          "Taşıt yolu üzerinde park için yer ayrılmamış veya trafik işaretleri ile "
+          "belirtilmemiş alt geçit, üst geçit ve köprüler üzerinde veya bunlara on "
+          "metrelik mesafe içinde park etmek", 15, "1.246 TL",
+          ("kopruye park", "koprude park", "ust gecide park", "alt gecide park"), "park"),
+    Ihlal("cikisi_engelleyen_park", "Park etmiş aracın çıkışını engelleyen park", "61/1-g",
+          "Taşıt yolu üzerinde kurallara uygun şekilde park etmiş araçların çıkmasına "
+          "engel olacak yerlerde park etmek", 10, "1.246 TL",
+          ("cikisini engelledi", "onunu kapatti", "cift park", "ciftli park",
+           "aracin onune park"), "park"),
+
+    Ihlal("gecitte_duraklama", "Yaya/okul geçidinde duraklamak", "60/1-c",
+          "Taşıt yolu üzerinde yaya ve okul geçitleri ile diğer geçitlerde duraklamak",
+          10, "1.246 TL",
+          ("yaya gecidinde durakladi", "gecitte durakladi", "gecit uzerinde durakladi"),
+          "duraklama"),
+    Ihlal("kavsakta_duraklama", "Kavşak/tünel/köprüde duraklamak", "60/1-d",
+          "Taşıt yolu üzerinde kavşaklar, tüneller, rampalar, köprüler ve bağlantı "
+          "yollarında veya buralara yerleşim birimleri içinde beş metre veya yerleşim "
+          "birimleri dışında yüz metre mesafede duraklamak", 10, "1.246 TL",
+          ("kavsakta durakladi", "koprude durakladi", "tunelde durakladi",
+           "rampada durakladi"), "duraklama"),
+    Ihlal("durakta_duraklama", "Otobüs/tramvay/taksi durağında duraklamak", "60/1-f",
+          "Taşıt yolu üzerinde otobüs, tramvay ve taksi duraklarında duraklamak",
+          10, "1.246 TL",
+          ("durakta durakladi", "otobus duraginda", "taksi duraginda"), "duraklama"),
+    Ihlal("sol_seritte_duraklama", "Sol şeritte duraklamak", "60/1-b",
+          "Taşıt yolu üzerinde sol şeritte (raylı sistemin bulunduğu yollar hariç) "
+          "duraklamak", 10, "1.246 TL",
+          ("sol seritte durakladi", "sol seritte durdu"), "duraklama"),
 
     Ihlal("hiz_ihlali", "Hız sınırı ihlali", "51/2",
           "Belirlenen hız sınırını aşmak (aşım miktarına göre 51/2-a veya 51/2-b "
@@ -259,23 +303,54 @@ def normalize(metin: str) -> str:
     return f" {sade.strip()} "
 
 
-def eslestir(metin: str):
-    """Serbest metne en iyi uyan Ihlal'i döndürür, bulamazsa None.
+# Metinde bunlardan biri geçiyorsa araç duruyor demektir. Bu bir filtre DEĞİL,
+# sıralama ölçütü: "yaya geçidine park" ifadesinde "yaya gecidi" anahtarı
+# "park"tan uzun olduğu için en-uzun-kelime kuralı 74/b'yi (seyir halinde
+# yayaya yol vermemek) öne çıkarıyordu. Artık park/duraklama bentleri başa
+# alınıyor ama sürüş maddeleri de listede kalıyor - kullanıcı doğrusunu seçiyor,
+# eleme kararını kod vermiyor.
+DURAN_ARAC_BELIRTECLERI = ("park", "parket", "parkl", "durakla", "duraklat", "birakmis")
 
-    En uzun anahtar kelime kazanıyor: 'kırmızı ışık ihlali' hem 'kirmizi'
-    hem 'kirmizi isik' ile eşleşir, uzun olan doğru olandır."""
+DURAN_GRUPLAR = ("park", "duraklama")
+
+
+def _duruyor_mu(hedef: str) -> bool:
+    """Normalize edilmiş metin duran bir aracı mı anlatıyor?"""
+    return any(kelime.startswith(belirtec)
+               for kelime in hedef.split()
+               for belirtec in DURAN_ARAC_BELIRTECLERI)
+
+
+def adaylari_bul(metin: str, limit: int = 8) -> list:
+    """Metne uyan tüm maddeleri, en olası olan başta olmak üzere döndürür.
+
+    Sıralama (uyum, anahtar_uzunlugu) ikilisine göre: önce duran/hareketli
+    araç uyumu, sonra eşleşen anahtar kelimenin uzunluğu. Tek bir madde
+    dayatmak yerine aday listesi vermek, yanlış bendi resmi bir ihbara
+    yazma riskini kullanıcının gözüne taşıyor."""
     hedef = normalize(metin)
     if not hedef.strip():
-        return None
-    en_iyi, en_uzun = None, 0
+        return []
+    duruyor = _duruyor_mu(hedef)
+    puanlar = {}
     for ihlal in KATALOG:
+        en_uzun = 0
         for kelime in ihlal.kelimeler:
             anahtar = normalize(kelime).strip()
-            if not anahtar or anahtar not in hedef:
-                continue
-            if len(anahtar) > en_uzun:
-                en_iyi, en_uzun = ihlal, len(anahtar)
-    return en_iyi
+            if anahtar and anahtar in hedef:
+                en_uzun = max(en_uzun, len(anahtar))
+        if not en_uzun:
+            continue
+        uyum = 1 if duruyor == (ihlal.grup in DURAN_GRUPLAR) else 0
+        puanlar[ihlal] = (uyum, en_uzun)
+    sirali = sorted(puanlar, key=lambda i: puanlar[i], reverse=True)
+    return sirali[:limit]
+
+
+def eslestir(metin: str):
+    """En olası tek maddeyi döndürür (aday listesinin ilk sırası), yoksa None."""
+    adaylar = adaylari_bul(metin, limit=1)
+    return adaylar[0] if adaylar else None
 
 
 def anahtardan_bul(anahtar: str):

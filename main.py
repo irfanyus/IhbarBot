@@ -166,6 +166,34 @@ def olay_detayi_sor():
     return girdi
 
 
+def madde_sec(olay_detayi):
+    """Eşleşen KTK maddelerini listeleyip doğrusunu kullanıcıya seçtirir.
+
+    Tek aday varsa sormadan geçiyor; hiç aday yoksa None dönüp ihbarın
+    dayanak satırı olmadan gitmesine izin veriyor. Uydurma madde yazmaktansa
+    hiç yazmamak doğrusu."""
+    adaylar = ihlal_katalogu.adaylari_bul(olay_detayi)
+    if not adaylar:
+        print("[UYARI] Olay detayı katalogdaki hiçbir maddeyle eşleşmedi; "
+              "ihbar kanuni dayanak satırı olmadan gönderilecek.")
+        return None
+    if len(adaylar) == 1:
+        print(f"[INFO] Kanuni dayanak: {adaylar[0].ozet()}")
+        return adaylar[0]
+
+    print("\n[INPUT] Olay detayına uyan maddeler (en olası ilk sırada):")
+    for i, aday in enumerate(adaylar, 1):
+        print(f"  {i}. {aday.ozet()}")
+    print("  0. Hiçbiri - dayanak satırı eklenmesin")
+    secim = input("Doğru maddeyi seçin (ENTER = 1): ").strip()
+    if secim == "0":
+        print("[INFO] Kanuni dayanak eklenmeyecek.")
+        return None
+    if secim.isdigit() and 1 <= int(secim) <= len(adaylar):
+        return adaylar[int(secim) - 1]
+    return adaylar[0]
+
+
 def main():
     print("\n" + "="*60)
     print("                 İHBARBOT BAŞLATILIYOR")
@@ -273,8 +301,12 @@ def main():
         print(f"   Tespit Adresi: {address_info.get('il', 'Bilinmiyor')} / {address_info.get('ilçe', 'Bilinmiyor')} / {address_info.get('mahalle', 'Bilinmiyor')} / {address_info.get('sokak', 'Bilinmiyor')}")
         print(f"2. Araç Plakası : {plaka}")
         print(f"3. Olay Açıklama: {olay_detayi}")
-        _eslesen = ihlal_katalogu.eslestir(olay_detayi)
-        print(f"   Kanuni Dayanak: {_eslesen.ozet() if _eslesen else 'eşleşme yok'}")
+        _adaylar = ihlal_katalogu.adaylari_bul(olay_detayi)
+        if _adaylar:
+            _ek = f" (+{len(_adaylar) - 1} aday daha)" if len(_adaylar) > 1 else ""
+            print(f"   Kanuni Dayanak: {_adaylar[0].ozet()}{_ek}")
+        else:
+            print("   Kanuni Dayanak: eşleşme yok")
         print(f"4. Tarih / Saat : {datetime_str}")
         print("="*60)
         
@@ -308,19 +340,18 @@ def main():
 
     # Açıklama metnini son haline getir
     description_text = f"Tarih/Saat: {datetime_str}\nPlaka: {plaka}\nOlay Detayı: {olay_detayi}"
-    description_text, eslesen_ihlal = ihlal_katalogu.dayanak_ekle(description_text)
-    if eslesen_ihlal:
-        print(f"[INFO] Kanuni dayanak eklendi: KTK {eslesen_ihlal.madde} - {eslesen_ihlal.resmi_tanim}")
-    else:
-        print("[UYARI] Olay detayı katalogdaki hiçbir maddeyle eşleşmedi; "
-              "ihbar kanuni dayanak satırı olmadan gönderilecek.")
+    secilen_ihlal = madde_sec(olay_detayi)
+    if secilen_ihlal:
+        description_text, _ = ihlal_katalogu.dayanak_ekle(description_text, secilen_ihlal)
+        print(f"[INFO] Kanuni dayanak eklendi: KTK {secilen_ihlal.madde} - {secilen_ihlal.resmi_tanim}")
 
     # Site olay açıklamasında en az 50 karakter istiyor; kısa metinde 2. adım kilitleniyor.
     while len(description_text) < 50:
         print(f"\n[UYARI] Açıklama {len(description_text)} karakter; site en az 50 karakter istiyor.")
         olay_detayi = input("Olay detayını biraz daha ayrıntılı yazın: ").strip()
         description_text = f"Tarih/Saat: {datetime_str}\nPlaka: {plaka}\nOlay Detayı: {olay_detayi}"
-        description_text, eslesen_ihlal = ihlal_katalogu.dayanak_ekle(description_text)
+        if secilen_ihlal:
+            description_text, _ = ihlal_katalogu.dayanak_ekle(description_text, secilen_ihlal)
 
     # 4. Yüklenecek görselin hazırlanması
     # Site (v1.1.38) video yüklemeyi kaldırdı: yalnızca jpg/jpeg/png kabul ediliyor.

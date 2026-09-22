@@ -89,6 +89,7 @@ class IhbarBotGUI:
         # ihbar açıklamasına kanuni dayanak olarak ekleniyor.
         self.dayanak_var = tk.StringVar(value="")
         self.eslesen_ihlal = None
+        self.dayanak_adaylari = []
         
         # Build UI Sections
         self._build_header()
@@ -192,24 +193,42 @@ class IhbarBotGUI:
                                      values=ihlal_katalogu.etiketler())
         details_entry.grid(row=6, column=1, columnspan=2, sticky="ew", padx=5, pady=5)
 
-        # 6. Tespit edilen kanuni dayanak (salt okunur bilgi satırı)
+        # 6. Kanuni dayanak: eşleşen maddeler aday olarak listeleniyor, doğrusunu
+        # kullanıcı seçiyor. Tek bir bendi koda dayatmak, yanlış maddeyi resmi
+        # bir ihbara sessizce yazma riski demekti.
         ttk.Label(form_frame, text="Kanuni Dayanak:").grid(row=7, column=0, sticky="nw", pady=5)
-        dayanak_lbl = ttk.Label(form_frame, textvariable=self.dayanak_var,
-                                font=('Helvetica', 9), foreground='#166534',
-                                wraplength=400, justify="left")
-        dayanak_lbl.grid(row=7, column=1, columnspan=2, sticky="w", padx=5, pady=5)
+        self.dayanak_combo = ttk.Combobox(form_frame, textvariable=self.dayanak_var,
+                                          state="readonly", values=[])
+        self.dayanak_combo.grid(row=7, column=1, columnspan=2, sticky="ew", padx=5, pady=5)
+        self.dayanak_combo.bind("<<ComboboxSelected>>", self._dayanak_secildi)
         self.details_var.trace_add("write", self._update_dayanak)
         self._update_dayanak()
 
     def _update_dayanak(self, *_):
-        """Olay detayı her değiştiğinde eşleşen KTK maddesini ekranda gösterir."""
-        self.eslesen_ihlal = ihlal_katalogu.eslestir(self.details_var.get())
-        if self.eslesen_ihlal:
+        """Olay detayı değiştikçe aday maddeleri tazeler, en olasıyı seçili bırakır."""
+        self.dayanak_adaylari = ihlal_katalogu.adaylari_bul(self.details_var.get())
+        self.dayanak_combo.configure(values=[i.ozet() for i in self.dayanak_adaylari])
+        if self.dayanak_adaylari:
+            self.eslesen_ihlal = self.dayanak_adaylari[0]
             self.dayanak_var.set(self.eslesen_ihlal.ozet())
-        elif self.details_var.get().strip():
-            self.dayanak_var.set("Eşleşen madde bulunamadı - ihbar dayanak satırı olmadan gider.")
+            if len(self.dayanak_adaylari) > 1:
+                self.dayanak_combo.configure(foreground="#b45309")
+            else:
+                self.dayanak_combo.configure(foreground="#166534")
         else:
-            self.dayanak_var.set("")
+            self.eslesen_ihlal = None
+            self.dayanak_combo.configure(foreground="#b45309")
+            self.dayanak_var.set(
+                "Eşleşen madde bulunamadı - ihbar dayanak satırı olmadan gider."
+                if self.details_var.get().strip() else "")
+
+    def _dayanak_secildi(self, *_):
+        """Kullanıcı aday listesinden başka bir maddeyi seçti."""
+        idx = self.dayanak_combo.current()
+        if 0 <= idx < len(self.dayanak_adaylari):
+            self.eslesen_ihlal = self.dayanak_adaylari[idx]
+            print(f"[INFO] Kanuni dayanak elle seçildi: KTK {self.eslesen_ihlal.madde} "
+                  f"- {self.eslesen_ihlal.resmi_tanim}")
 
     def _build_console_log(self):
         console_frame = ttk.LabelFrame(self.root, text=" Log Çıktıları ve Durum Bilgisi ", padding="10 10 10 10")
@@ -670,9 +689,9 @@ class IhbarBotGUI:
         description_text = f"Tarih/Saat: {dt_str}\nPlaka: {plaka}\nOlay Detayı: {olay_detayi}"
         # İhlalin KTK karşılığını açıklamaya ekle: hem ihbarı değerlendiren birim
         # için hem de fahri trafik müfettişliği kaydı için maddeli metin anlamlı.
-        description_text, eslesen_ihlal = ihlal_katalogu.dayanak_ekle(
-            description_text, self.eslesen_ihlal)
+        eslesen_ihlal = self.eslesen_ihlal
         if eslesen_ihlal:
+            description_text, _ = ihlal_katalogu.dayanak_ekle(description_text, eslesen_ihlal)
             print(f"[INFO] Kanuni dayanak eklendi: KTK {eslesen_ihlal.madde} - {eslesen_ihlal.resmi_tanim}")
         else:
             print("[UYARI] Olay detayı katalogdaki hiçbir maddeyle eşleşmedi; "
