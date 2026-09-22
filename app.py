@@ -46,8 +46,8 @@ class IhbarBotGUI:
         self.root = root
         self.current_driver = None
         self.root.title("112 Trafik İhbar Asistanı")
-        self.root.geometry("700x780")
-        self.root.minsize(600, 640)
+        self.root.geometry("820x800")
+        self.root.minsize(720, 660)
         
         # Grid weight configuration
         self.root.columnconfigure(0, weight=1)
@@ -170,17 +170,28 @@ class IhbarBotGUI:
         coords_entry = ttk.Entry(form_frame, textvariable=self.coordinates_var)
         coords_entry.grid(row=2, column=1, sticky="ew", padx=(5, 5), pady=5)
         
-        coords_btn = ttk.Button(form_frame, text="Adresi Sorgula", command=self.query_address)
-        coords_btn.grid(row=2, column=2, sticky="e", pady=5)
-        
-        # Adres Görüntüleme
-        ttk.Label(form_frame, text="Tespit Edilen Adres:").grid(row=3, column=0, sticky="nw", pady=5)
-        address_lbl = ttk.Label(form_frame, textvariable=self.address_var, font=('Helvetica', 9, 'bold'), foreground='#0369a1', wraplength=330, justify="left")
-        address_lbl.grid(row=3, column=1, sticky="w", padx=5, pady=5)
+        # Her iki adres butonu da koordinat satırında: adres etiketi böylece
+        # alt satırın tamamını kullanıyor, uzun adresler sarmadan okunuyor.
+        coords_buttons_frame = ttk.Frame(form_frame)
+        coords_buttons_frame.grid(row=2, column=2, sticky="e", pady=5)
+        ttk.Button(coords_buttons_frame, text="Adresi Sorgula",
+                   command=self.query_address).pack(side="left", padx=2)
         # Coğrafi kodlama sınır yollarında yanlış ilçe/mahalle verebiliyor ve
         # eskiden adres salt okunurdu; düzeltme yolu olmayınca ihbar tıkanıyordu.
-        ttk.Button(form_frame, text="Adresi Düzelt",
-                   command=self.edit_address).grid(row=3, column=2, sticky="e", pady=5)
+        ttk.Button(coords_buttons_frame, text="Adresi Düzelt",
+                   command=self.edit_address).pack(side="left", padx=2)
+
+        # Adres Görüntüleme
+        ttk.Label(form_frame, text="Tespit Edilen Adres:").grid(row=3, column=0, sticky="nw", pady=5)
+        self.address_lbl = ttk.Label(form_frame, textvariable=self.address_var,
+                                     font=('Helvetica', 10, 'bold'), foreground='#0369a1',
+                                     justify="left")
+        self.address_lbl.grid(row=3, column=1, columnspan=2, sticky="ew", padx=5, pady=5)
+        # Sabit wraplength pencere yeniden boyutlanınca ya taşıyor ya da erken
+        # sarıyor; etiketin kendi genişliğinden hesaplamak ikisini de çözüyor.
+        self.address_lbl.bind(
+            "<Configure>",
+            lambda e: self.address_lbl.configure(wraplength=max(260, e.width - 10)))
         
         # 3. Tarih Saat
         ttk.Label(form_frame, text="İhlal Tarih / Saat:").grid(row=4, column=0, sticky="w", pady=5)
@@ -507,10 +518,12 @@ class IhbarBotGUI:
         pencere.title("Adresi Düzelt")
         pencere.transient(self.root)
         pencere.grab_set()
-        pencere.resizable(False, False)
+        pencere.resizable(True, False)
 
         cerceve = ttk.Frame(pencere, padding="15 15 15 15")
         cerceve.grid(sticky="nsew")
+        pencere.columnconfigure(0, weight=1)
+        cerceve.columnconfigure(1, weight=1)
         ttk.Label(cerceve, text="Sitedeki açılır listelerde yazdığı gibi girin:",
                   font=('Helvetica', 9)).grid(row=0, column=0, columnspan=2,
                                               sticky="w", pady=(0, 10))
@@ -520,7 +533,8 @@ class IhbarBotGUI:
                 (('il', 'İl'), ('ilçe', 'İlçe'), ('mahalle', 'Mahalle'), ('sokak', 'Cadde / Sokak')), start=1):
             ttk.Label(cerceve, text=etiket + ":").grid(row=sira, column=0, sticky="w", pady=3)
             degisken = tk.StringVar(value=mevcut.get(anahtar, ''))
-            ttk.Entry(cerceve, textvariable=degisken, width=34).grid(
+            ttk.Entry(cerceve, textvariable=degisken, width=46,
+                      font=('Helvetica', 11)).grid(
                 row=sira, column=1, sticky="ew", padx=(8, 0), pady=3)
             alanlar[anahtar] = degisken
 
