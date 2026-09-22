@@ -12,7 +12,7 @@ from tkinter.scrolledtext import ScrolledText
 
 # Local Modules
 from geocoder import reverse_geocode
-from form_filler import IhbarFormFiller, kisa_hata
+from form_filler import IhbarFormFiller, kisa_hata, tarayici_kapandi_mi
 from ocr_helper import analyze_video_metadata, analyze_image_metadata
 from main import (find_video_in_folder, parse_plates_from_filename,
                   find_image_in_folder, prepare_image_from_video,
@@ -854,6 +854,9 @@ class IhbarBotGUI:
         # bayraklarını sıfırla ki bu ihbar geçmişe düzgün kaydedilsin.
         self.automation_cancelled = False
         self.ihbar_recorded = False
+        # Önceki ihbarın penceresi hâlâ açıksa burada kapanıyor; yoksa arka arkaya
+        # yapılan ihbarlarda Chrome pencereleri üst üste birikiyor.
+        self._chromedriver_birak(pencereyi_de_kapat=True)
         self.run_btn.configure(state="disabled")
         
         def run_selenium():
@@ -890,33 +893,47 @@ class IhbarBotGUI:
             except Exception as e:
                 self.msg_queue.put(("automation_error", str(e)))
             finally:
-                # fill_form döndüğünde kullanıcı etkileşimi (hCaptcha/SMS) bitmiş
-                # oluyor; tarayıcıya artık Selenium'un ihtiyacı yok.
-                self._chromedriver_birak()
+                # Sürücü BİLEREK kapatılmıyor: pencere kullanıcıda kalsın diye
+                # driver.quit() edilemiyor, ama referansı atarsak pencereyi bir
+                # daha kapatamayız ve her ihbardan bir Chrome birikir. Bu yüzden
+                # oturum canlı bırakılıyor; bir sonraki BAŞLAT ya da uygulamadan
+                # çıkış onu pencereyle birlikte kapatıyor.
+                print("[INFO] Chrome penceresi sizde kalıyor; "
+                      "sonraki ihbara başlarken ya da uygulamadan çıkarken kapanacak.")
 
         threading.Thread(target=run_selenium, daemon=True).start()
 
-    def _chromedriver_birak(self):
-        """chromedriver sürecini durdurur, Chrome penceresini açık bırakır.
+    def _chromedriver_birak(self, pencereyi_de_kapat: bool = False):
+        """Selenium oturumunu sonlandırır.
 
-        driver.quit() KULLANILMIYOR: detach=True olmasına rağmen quit() önce
-        oturumu kapatıp Chrome'u da öldürüyor, kullanıcı doldurulmuş formu
-        kaybediyor. service.stop() yalnızca chromedriver'ı sonlandırıyor.
-        Bu çağrı olmadığı için her ihbardan geriye, kullanıcı Chrome'u
-        kapattıktan sonra bile çalışmaya devam eden bir chromedriver kalıyordu."""
+        pencereyi_de_kapat=False → yalnızca chromedriver durur (service.stop()),
+        Chrome penceresi kullanıcıda kalır. hCaptcha ve SMS orada tamamlandığı
+        için otomasyon biter bitmez pencereyi kapatmak olmaz; driver.quit() de
+        kullanılamaz çünkü detach=True olmasına rağmen Chrome'u kapatıyor.
+
+        pencereyi_de_kapat=True → driver.quit(), pencere de kapanır. Yeni bir
+        ihbara başlarken ve uygulamadan çıkarken bu kullanılıyor: aksi halde
+        her ihbardan bir Chrome penceresi birikiyordu."""
         driver = getattr(self, "current_driver", None)
         if driver is None:
             return
         self.current_driver = None
         try:
-            driver.service.stop()
-            print("[INFO] chromedriver kapatıldı; Chrome penceresi sizde kalıyor.")
+            if pencereyi_de_kapat:
+                driver.quit()
+                print("[INFO] Önceki ihbarın Chrome penceresi kapatıldı.")
+            else:
+                driver.service.stop()
+                print("[INFO] chromedriver kapatıldı; Chrome penceresi sizde kalıyor.")
         except Exception as e:
-            print(f"[UYARI] chromedriver kapatılamadı: {kisa_hata(e)}")
+            if tarayici_kapandi_mi(e):
+                # Kullanıcı pencereyi zaten kapatmış; kapatılacak bir şey yok.
+                return
+            print(f"[UYARI] Tarayıcı kapatılamadı: {kisa_hata(e)}")
 
     def on_close(self):
-        """Pencere kapatılırken arkada chromedriver bırakmadan çık."""
-        self._chromedriver_birak()
+        """Pencere kapatılırken arkada ne chromedriver ne Chrome bırak."""
+        self._chromedriver_birak(pencereyi_de_kapat=True)
         self.root.destroy()
 
 if __name__ == "__main__":
