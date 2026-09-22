@@ -1,5 +1,6 @@
 import json
 import math
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -44,7 +45,18 @@ MAHALLE_ZOOMLARI = (13, 12)
 
 # Otoyol/bağlantı yolu isimleri ihbar formundaki cadde-sokak listesinde çıkmadığı
 # için, isimli bir cadde/sokak varsa onu tercih ediyoruz.
-DEPRIORITIZED_HIGHWAYS = ("motorway", "motorway_link", "trunk_link", "primary_link", "secondary_link")
+DEPRIORITIZED_HIGHWAYS = ("motorway", "motorway_link", "trunk", "trunk_link",
+                          "primary_link", "secondary_link")
+# Devlet yolu adları OSM'de var ama resmî adres kaydında (MAKS) cadde/sokak
+# olarak geçmiyor; sitenin listesinde hiç çıkmıyorlar. 40.952478,29.118656
+# için Nominatim "D100 Karayolu" diyor, formun Aydınevler listesinde böyle
+# bir kayıt yok ve Cadde/Sokak zorunlu alan olduğu için adım kilitleniyordu.
+KARAYOLU_ADI_RE = re.compile(
+    r"(^[DEOK]\s?-?\s?\d{2,4}\b)|karayolu|yanyol|otoyol|çevre\s*yolu|\bTEM\b",
+    re.IGNORECASE)
+# Sokak da mahalle gibi aday listesi: site listesinde hangisinin bulunduğunu
+# ancak form_filler deneyerek öğrenebiliyor.
+SOKAK_ADAY_SAYISI = 4
 
 
 def _haversine_m(lat1, lon1, lat2, lon2):
@@ -181,29 +193,32 @@ def komsu_idari_alanlar(latitude: float, longitude: float, admin_level: int,
     return adlar
 
 
-def nearest_named_road(latitude: float, longitude: float, radius_m: int = OVERPASS_RADIUS_M):
-    """
-    Overpass API ile verilen noktanın çevresindeki isimli yolları arar ve en yakınının
-    adını döndürür. Ağ hatası / sonuç yoksa None döner (çağıran taraf 'Bilinmiyor' der).
-    """
+def yakin_isimli_yollar(latitude: float, longitude: float,
+                        radius_m: int = OVERPASS_RADIUS_M,
+                        limit: int = SOKAK_ADAY_SAYISI) -> list:
+    """Çevredeki isimli yolları yakınlık sırasına göre döndürür.
+
+    Tek bir "en yakın yol" yetmiyor: nokta bir devlet yolunun üzerindeyse en
+    yakın ad "D100 Karayolu" oluyor ve bu ad resmî adres kaydında bulunmuyor.
+    Sıralama üç kademeli - önce karayolu adı olmayanlar, sonra ana artere ait
+    olmayan tipler, sonra gerçek mesafe. form_filler listeyi sırayla deneyip
+    sitenin kabul ettiğinde duruyor."""
     query = (
         f"[out:json][timeout:{OVERPASS_TIMEOUT_SEC}];"
         f'way(around:{radius_m},{latitude},{longitude})["highway"]["name"];'
         f"out tags geom;"
     )
     data = _overpass(query)
-
     if data is None:
         print("[UYARI] Hiçbir Overpass sunucusuna ulaşılamadı; sokak elle girilmeli.")
-        return None
+        return []
 
-    candidates = []
+    en_yakin = {}
     for element in data.get("elements", []):
         tags = element.get("tags", {})
-        name = tags.get("name")
+        name = (tags.get("name") or "").strip()
         if not name:
             continue
-        # Yolun geometrisindeki en yakın düğüme olan mesafe — parça merkezinden daha doğru.
         distances = [
             _haversine_m(latitude, longitude, node["lat"], node["lon"])
             for node in element.get("geometry", [])
@@ -211,16 +226,22 @@ def nearest_named_road(latitude: float, longitude: float, radius_m: int = OVERPA
         ]
         if not distances:
             continue
-        deprioritized = tags.get("highway") in DEPRIORITIZED_HIGHWAYS
-        candidates.append((deprioritized, min(distances), name))
+        skor = (bool(KARAYOLU_ADI_RE.search(name)),
+                tags.get("highway") in DEPRIORITIZED_HIGHWAYS,
+                min(distances))
+        if name not in en_yakin or skor < en_yakin[name]:
+            en_yakin[name] = skor
 
-    if not candidates:
-        return None
+    if not en_yakin:
+        return []
+    sirali = sorted(en_yakin, key=lambda ad: en_yakin[ad])
+    return sirali[:limit]
 
-    deprioritized, distance, name = min(candidates)
-    print(f"[INFO] Koordinatın düştüğü yol OSM'de isimsiz; en yakın isimli yol kullanıldı: "
-          f"{name} (~{distance:.0f} m)")
-    return name
+
+def nearest_named_road(latitude: float, longitude: float, radius_m: int = OVERPASS_RADIUS_M):
+    """Geriye dönük sarmalayıcı: en olası tek yol adı."""
+    adaylar = yakin_isimli_yollar(latitude, longitude, radius_m, limit=1)
+    return adaylar[0] if adaylar else None
 
 
 def reverse_geocode(latitude: float, longitude: float) -> dict:
@@ -326,11 +347,27 @@ def reverse_geocode(latitude: float, longitude: float) -> dict:
     if len(adaylar) > 1:
         print(f"[INFO] Mahalle adayları: {', '.join(adaylar)}")
 
-    # Nominatim isimsiz bir yol parçasına düştüyse sokak boş kalıyor — çevredeki
-    # en yakın isimli yolu Overpass'tan çekip dolduruyoruz.
-    if result['sokak'] == 'Bilinmiyor':
-        fallback = nearest_named_road(latitude, longitude)
-        if fallback:
-            result['sokak'] = fallback
+    # Sokak da aday listesi olarak veriliyor. İki ayrı sebep var: Nominatim
+    # isimsiz bir yol parçasına düşüp sokağı boş bırakabiliyor, ya da nokta bir
+    # devlet yolunun üzerindeyse resmî adres kaydında bulunmayan bir ad
+    # ("D100 Karayolu") döndürüyor. İkisinde de çevredeki isimli yollar sırayla
+    # denenmeli — hangisinin listede olduğunu yalnızca site biliyor.
+    sokak_adaylari = []
+    if result['sokak'] != 'Bilinmiyor' and not KARAYOLU_ADI_RE.search(result['sokak']):
+        sokak_adaylari.append(result['sokak'])
+    for aday in yakin_isimli_yollar(latitude, longitude):
+        if aday not in sokak_adaylari:
+            sokak_adaylari.append(aday)
+    # Karayolu adı en sona: listede bulunma ihtimali düşük ama tek seçenek olabilir.
+    if result['sokak'] != 'Bilinmiyor' and result['sokak'] not in sokak_adaylari:
+        sokak_adaylari.append(result['sokak'])
+
+    if sokak_adaylari:
+        if result['sokak'] != sokak_adaylari[0]:
+            print(f"[INFO] Sokak adayı değiştirildi: {result['sokak']} -> {sokak_adaylari[0]}")
+            result['sokak'] = sokak_adaylari[0]
+        if len(sokak_adaylari) > 1:
+            print(f"[INFO] Sokak adayları: {', '.join(sokak_adaylari)}")
+    result['sokak_adaylari'] = sokak_adaylari
 
     return result

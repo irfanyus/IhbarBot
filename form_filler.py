@@ -194,6 +194,8 @@ SELECTORS = {
 class IhbarFormFiller:
     def __init__(self, driver: webdriver.Chrome):
         self.driver = driver
+        self._wait_callback = None
+        self._son_hata_adimi = None
         self.wait = WebDriverWait(self.driver, 20)
 
     # ──────────────────────────────────────────────────────────────────────
@@ -233,10 +235,18 @@ class IhbarFormFiller:
 
     def _fill_form(self, address_info, image_path, description_text,
                    wait_callback, guvenlik_birimi, gorsel_yukle) -> bool:
+        # Adım metotlarının kullanıcıya soru sorabilmesi için sakla.
+        self._wait_callback = wait_callback
         istenen_gorsel = image_path if gorsel_yukle else None
         ok = self._fill_steps(address_info, istenen_gorsel, description_text, guvenlik_birimi)
 
-        if not ok and istenen_gorsel:
+        # Görselsiz yeniden deneme YALNIZCA 2. adımda takılınca yapılıyor: oradaki
+        # dosya tarama servisi formu geri alınamaz şekilde kilitleyebiliyor.
+        # Konum adımında baştan başlamak zararlı - driver.get() sihirbazı sıfırlıyor
+        # ve kullanıcının tarayıcıda elle düzelttiği alanları siliyor (22.09.2026:
+        # Cadde/Sokak listede bulunamayınca bot döngüye girip elle düzeltmeyi
+        # sürekli eziyordu).
+        if not ok and istenen_gorsel and self._son_hata_adimi == "detay":
             print("\n[INFO] Görselli deneme başarısız oldu — form görselsiz olarak baştan dolduruluyor.")
             print("[INFO] (Görseli daha sonra elle eklemek isterseniz sitenin tarama servisi düzelmiş olmalı.)")
             ok = self._fill_steps(address_info, None, description_text, guvenlik_birimi)
@@ -300,18 +310,25 @@ class IhbarFormFiller:
         time.sleep(3)
         self._dismiss_promo_modal()
 
+        self._son_hata_adimi = None
+
         print("\n[ADIM 1/3] Olay/Vaka Konumu")
-        self._fill_location_step(address_info, guvenlik_birimi)
+        konum_tam = self._fill_location_step(address_info, guvenlik_birimi)
+        if not konum_tam:
+            self._konum_icin_elle_duzeltme_bekle()
         if not self._click_devam_et("olay-vaka-detayi"):
             print("[HATA] 1. adımdan geçilemedi. Eksik/geçersiz alan olabilir; tarayıcıdan kontrol edin.")
+            self._son_hata_adimi = "konum"
             return False
 
         print("\n[ADIM 2/3] Olay/Vaka Detayı")
         if not self._fill_detail_step(description_text, image_path):
+            self._son_hata_adimi = "detay"
             return False
         # Açıklamada link varsa site linki tarayana kadar butonu açmıyor.
         if not self._click_devam_et("kisisel-bilgiler", enable_timeout=90):
             print("[HATA] 2. adımdan geçilemedi. Açıklama veya görsel reddedilmiş olabilir.")
+            self._son_hata_adimi = "detay"
             return False
 
         print("\n[ADIM 3/3] Kişisel Bilgileriniz")
@@ -346,15 +363,18 @@ class IhbarFormFiller:
         mahalle_adaylari = [m for m in (address_info.get("mahalle_adaylari")
                                         or [address_info.get("mahalle")])
                             if m and m != "Bilinmiyor"]
-        sokak = address_info.get("sokak")
-        sokak_gerekli = sokak not in (None, "Bilinmiyor")
+        sokak_adaylari = [k for k in (address_info.get("sokak_adaylari")
+                                      or [address_info.get("sokak")])
+                          if k and k != "Bilinmiyor"]
+        sokak_gerekli = bool(sokak_adaylari)
 
-        if not self._konum_adaylarini_dene(ilce_adaylari, mahalle_adaylari,
-                                           sokak, sokak_gerekli):
+        tamam = self._konum_adaylarini_dene(ilce_adaylari, mahalle_adaylari,
+                                            sokak_adaylari, sokak_gerekli)
+        if not tamam:
             print(f"[UYARI] Konum denenen kombinasyonların hiçbirinde tamamlanamadı "
                   f"(ilçe: {', '.join(ilce_adaylari) or '-'} | "
-                  f"mahalle: {', '.join(mahalle_adaylari) or '-'}). "
-                  f"İlçe/mahalle/sokak alanlarını elle seçmen gerekiyor.")
+                  f"mahalle: {', '.join(mahalle_adaylari) or '-'} | "
+                  f"sokak: {', '.join(sokak_adaylari) or '-'}).")
 
         # Close any open dropdown popup (mousedown, NOT ESC — ESC deselects in Ant Design)
         self._close_open_dropdowns()
@@ -362,9 +382,26 @@ class IhbarFormFiller:
 
         print(f"[INFO] Güvenlik birimi seçiliyor: {guvenlik_birimi}")
         self._select_guvenlik_birimi(guvenlik_birimi)
+        return tamam
+
+    def _konum_icin_elle_duzeltme_bekle(self):
+        """Konum adımı tamamlanamadıysa kullanıcıya elle düzeltme fırsatı verir.
+
+        Eskiden bot doğrudan 'Devam Et'e geçiyor, buton (Cadde/Sokak zorunlu
+        alan olduğu için) hiç açılmıyor, adım başarısız sayılıp tüm sihirbaz
+        baştan dolduruluyordu. Kullanıcı tarayıcıda alanı elle seçmeye çalışırken
+        bot araya girip seçimi eziyordu. Artık burada durup bekliyoruz."""
+        if not self._wait_callback:
+            print("[UYARI] Cadde/Sokak seçilemedi; tarayıcıdan elle seçin.")
+            return
+        print("[WAIT] Cadde/Sokak listeden bulunamadı — tarayıcıda elle seçmeniz gerekiyor.")
+        print("       Bot bu sırada forma dokunmuyor.")
+        self._wait_callback(
+            "konum_duzeltme",
+            "Cadde/Sokak'ı tarayıcıda elle seçip 'Devam Et'e basın.")
 
     def _konum_adaylarini_dene(self, ilce_adaylari, mahalle_adaylari,
-                               sokak, sokak_gerekli) -> bool:
+                               sokak_adaylari, sokak_gerekli) -> bool:
         """İlçe x mahalle kombinasyonlarını sırayla deneyip sokağı bulmaya çalışır.
 
         İlçe değişince site mahalle ve sokak listelerini sıfırlıyor, bu yüzden
@@ -385,14 +422,18 @@ class IhbarFormFiller:
 
                 if not sokak_gerekli:
                     return True
-                if self._select_ant_dropdown("streetDropdown", sokak):
-                    if not ilk_kombinasyon:
-                        print(f"[INFO] Konum sınır komşusunda bulundu: {ilce} / {mahalle}")
-                    return True
+                # Sokak da aday listesi: nokta devlet yolu üzerindeyse OSM adı
+                # ("D100 Karayolu") resmî kayıtta yok, çevredeki gerçek cadde var.
+                for sokak in sokak_adaylari:
+                    if self._select_ant_dropdown("streetDropdown", sokak):
+                        if not ilk_kombinasyon:
+                            print(f"[INFO] Konum aday listesinde bulundu: "
+                                  f"{ilce} / {mahalle} / {sokak}")
+                        return True
+                    self._close_open_dropdowns()
 
-                print(f"[INFO] '{sokak}' {ilce} / {mahalle} listesinde yok; "
-                      f"sonraki aday deneniyor.")
-                self._close_open_dropdowns()
+                print(f"[INFO] Sokak adaylarının hiçbiri {ilce} / {mahalle} "
+                      f"listesinde yok; sonraki mahalle deneniyor.")
                 ilk_kombinasyon = False
             ilk_kombinasyon = False
 
