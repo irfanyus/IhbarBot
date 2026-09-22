@@ -80,7 +80,8 @@ KATALOG = (
           "Trafik işaret levhaları, cihazları ve yer işaretlemeleri ile belirtilen "
           "veya gösterilen hususlara uymamak", 20, "1.000 TL",
           ("levha", "trafik isareti", "yer isaretlemesi", "yasak isaret", "durak cizgisi",
-           "girisi olmayan yol", "girilmez")),
+           "girisi olmayan yol", "girilmez", "tarali alan", "tarali alana",
+           "tarali bolge", "beyaz tarali", "tarali")),
     Ihlal("gorevli_isareti", "Görevlinin uyarı ve işaretine uymamak", "47/1-a",
           "Trafiği düzenleme ve denetimle görevli trafik kolluğu veya özel kıyafetli "
           "veya işaret taşıyan diğer yetkili kişilerin uyarı ve işaretlerine uymamak",
@@ -98,6 +99,14 @@ KATALOG = (
           "şerit değiştirmek",
           None, "90.000 TL ve 60 gün sürücü belgesine el koyma",
           ("makas", "makas atma", "makas atti", "ardi ardina serit")),
+    Ihlal("beklemeden_araya_girme",
+          "Şerit değiştirirken gireceği şeritteki aracı beklememek (kaynak yapmak)",
+          "46/2-b",
+          "Aksine bir işaret bulunmadıkça şerit değiştirmeden önce gireceği şeritte "
+          "sürülen araçların emniyetle geçişini beklememek", 20, "5.000 TL",
+          ("kaynak", "kaynak yapti", "kaynak yapma", "araya girdi", "araya girme",
+           "sira beklemeden", "sirayi beklemeden", "sira beklemedi", "onune girdi",
+           "son anda girdi", "kuyruga girdi")),
     Ihlal("tehlikeli_serit", "Tehlikeli şerit değiştirme", "46/2-c",
           "Trafiği aksatacak veya tehlikeye düşürecek şekilde şerit değiştirmek",
           20, "10.000 TL",
