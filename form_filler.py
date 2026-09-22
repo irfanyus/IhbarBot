@@ -312,40 +312,32 @@ class IhbarFormFiller:
             self._select_ant_dropdown("cityDropdown", address_info["il"])
             self._wait_for_enabled("districtDropdown", timeout=8)
 
-        if address_info.get("ilçe") not in (None, "Bilinmiyor"):
-            self._select_ant_dropdown("districtDropdown", address_info["ilçe"])
-            self._wait_for_enabled("neighboorhoodDropdown", timeout=8)
-
         # Mahalle ile sokak birbirine bağlı: site sokak listesini seçilen mahalleye
         # göre süzüyor. Koordinat iki mahallenin sınırına düşerse (sokak sınır
         # boyunca uzanıyorsa) geocoder hangisinin resmî kayıt olduğunu bilemiyor —
         # bunu yalnızca sitenin listesi biliyor. Bu yüzden adayları sırayla deneyip
         # sokağın gerçekten bulunduğu mahallede kalıyoruz. (10.09.2026: Tariki Has
         # Sk. Nominatim'e göre Kozyatağı'nda, resmî kayıtta Bostancı'da.)
-        adaylar = [m for m in (address_info.get("mahalle_adaylari")
-                               or [address_info.get("mahalle")])
-                   if m and m != "Bilinmiyor"]
+        #
+        # Aynı sorun ilçe düzeyinde de var: bir bulvar iki ilçenin sınırında
+        # uzanabiliyor ve nokta yanlış tarafa düşüyor (22.09.2026: Eşref Bitlis
+        # Bulvarı Sultanbeyli görünüyor, kayıt Pendik/Yenişehir'de). Bu yüzden
+        # döngü iki katmanlı: ilçe adayı x mahalle adayı.
+        ilce_adaylari = [i for i in (address_info.get("ilce_adaylari")
+                                     or [address_info.get("ilçe")])
+                         if i and i != "Bilinmiyor"]
+        mahalle_adaylari = [m for m in (address_info.get("mahalle_adaylari")
+                                        or [address_info.get("mahalle")])
+                            if m and m != "Bilinmiyor"]
         sokak = address_info.get("sokak")
         sokak_gerekli = sokak not in (None, "Bilinmiyor")
 
-        for sira, mahalle in enumerate(adaylar):
-            if not self._select_ant_dropdown("neighboorhoodDropdown", mahalle):
-                continue
-            self._wait_for_enabled("streetDropdown", timeout=8)
-
-            if not sokak_gerekli:
-                break
-            if self._select_ant_dropdown("streetDropdown", sokak):
-                break
-
-            kalan = adaylar[sira + 1:]
-            if kalan:
-                print(f"[INFO] '{sokak}' {mahalle} listesinde yok; "
-                      f"sınır komşusu deneniyor: {kalan[0]}")
-                self._close_open_dropdowns()
-            else:
-                print(f"[UYARI] '{sokak}' denenen mahallelerin hiçbirinde bulunamadı "
-                      f"({', '.join(adaylar)}). Cadde/Sokak alanını elle seçmen gerekiyor.")
+        if not self._konum_adaylarini_dene(ilce_adaylari, mahalle_adaylari,
+                                           sokak, sokak_gerekli):
+            print(f"[UYARI] Konum denenen kombinasyonların hiçbirinde tamamlanamadı "
+                  f"(ilçe: {', '.join(ilce_adaylari) or '-'} | "
+                  f"mahalle: {', '.join(mahalle_adaylari) or '-'}). "
+                  f"İlçe/mahalle/sokak alanlarını elle seçmen gerekiyor.")
 
         # Close any open dropdown popup (mousedown, NOT ESC — ESC deselects in Ant Design)
         self._close_open_dropdowns()
@@ -353,6 +345,48 @@ class IhbarFormFiller:
 
         print(f"[INFO] Güvenlik birimi seçiliyor: {guvenlik_birimi}")
         self._select_guvenlik_birimi(guvenlik_birimi)
+
+    def _konum_adaylarini_dene(self, ilce_adaylari, mahalle_adaylari,
+                               sokak, sokak_gerekli) -> bool:
+        """İlçe x mahalle kombinasyonlarını sırayla deneyip sokağı bulmaya çalışır.
+
+        İlçe değişince site mahalle ve sokak listelerini sıfırlıyor, bu yüzden
+        her ilçe için mahalle döngüsü baştan dönüyor. Bir mahalle yalnızca tek
+        bir ilçeye ait olduğundan yanlış eşleşmeler listede bulunamayıp
+        kendiliğinden eleniyor."""
+        ilk_kombinasyon = True
+        for ilce in ilce_adaylari:
+            if not self._select_ant_dropdown("districtDropdown", ilce):
+                print(f"[INFO] İlçe listesinde bulunamadı: {ilce}")
+                continue
+            self._wait_for_enabled("neighboorhoodDropdown", timeout=8)
+
+            for mahalle in mahalle_adaylari:
+                if not self._select_ant_dropdown("neighboorhoodDropdown", mahalle):
+                    continue
+                self._wait_for_enabled("streetDropdown", timeout=8)
+
+                if not sokak_gerekli:
+                    return True
+                if self._select_ant_dropdown("streetDropdown", sokak):
+                    if not ilk_kombinasyon:
+                        print(f"[INFO] Konum sınır komşusunda bulundu: {ilce} / {mahalle}")
+                    return True
+
+                print(f"[INFO] '{sokak}' {ilce} / {mahalle} listesinde yok; "
+                      f"sonraki aday deneniyor.")
+                self._close_open_dropdowns()
+                ilk_kombinasyon = False
+            ilk_kombinasyon = False
+
+        # Hiçbiri tutmadı: kullanıcının elle düzeltebilmesi için formu ilk
+        # adayla dolu bırak, boş bırakma.
+        if ilce_adaylari:
+            self._select_ant_dropdown("districtDropdown", ilce_adaylari[0])
+            self._wait_for_enabled("neighboorhoodDropdown", timeout=8)
+            if mahalle_adaylari:
+                self._select_ant_dropdown("neighboorhoodDropdown", mahalle_adaylari[0])
+        return False
 
     def _select_guvenlik_birimi(self, birim: str):
         """

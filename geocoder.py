@@ -18,6 +18,13 @@ OVERPASS_URLS = (
     "https://overpass.private.coffee/api/interpreter",
 )
 OVERPASS_RADIUS_M = 250
+# Sınır yollarında komşu ilçe/mahalleyi de aday yapmak için kullanılan yarıçap.
+# Bulvarın ortasından geçen bir sınırda nokta yanlış tarafa düşebiliyor;
+# 150 m sınırın öte yakasını yakalamaya yetiyor, uzak mahalleleri çekmiyor.
+KOMSU_SINIR_YARICAP_M = 150
+# mahalle=8, ilçe=6 (Türkiye OSM şeması).
+MAHALLE_ADMIN_LEVEL = 8
+ILCE_ADMIN_LEVEL = 6
 OVERPASS_TIMEOUT_SEC = 20
 # Sunucu başına HTTP bekleme sınırı. Üç sunucu da düşükken eskiden her adres
 # sorgusu 3 x 20 sn = 1 dakika takılıyordu.
@@ -147,6 +154,33 @@ def official_mahalle(latitude: float, longitude: float):
     return max(adaylar)[1]
 
 
+def komsu_idari_alanlar(latitude: float, longitude: float, admin_level: int,
+                        radius_m: int = KOMSU_SINIR_YARICAP_M) -> list:
+    """Noktanın yakınından geçen idari sınırların adlarını döndürür.
+
+    Neden gerekli: bir bulvar iki ilçenin sınırında uzanabiliyor ve nokta
+    fiziksel olarak yanlış tarafa düşüyor. 40.938554,29.296399 (Eşref Bitlis
+    Bulvarı) her zoom seviyesinde Sultanbeyli / Akşemsettin Mahallesi diyor,
+    oysa yol Pendik / Yenişehir Mahallesi'ne kayıtlı ve site sokak listesini
+    mahalleye göre süzdüğü için aranan cadde listede hiç çıkmıyor (22.09.2026).
+
+    Nokta-içinde-poligon sorgusunun tek bir cevabı var; burada sınır
+    geometrisinin yarıçap içinden geçtiği TÜM alanlar toplanıyor, böylece
+    form_filler sırayla deneyebiliyor."""
+    data = _overpass(f"[out:json][timeout:{OVERPASS_TIMEOUT_SEC}];"
+                     f"(relation(around:{radius_m},{latitude},{longitude})"
+                     f'["boundary"="administrative"]["admin_level"="{admin_level}"];);'
+                     f"out tags;")
+    if data is None:
+        return []
+    adlar = []
+    for element in data.get("elements", []):
+        ad = (element.get("tags", {}).get("name") or "").strip()
+        if ad and ad not in adlar:
+            adlar.append(ad)
+    return adlar
+
+
 def nearest_named_road(latitude: float, longitude: float, radius_m: int = OVERPASS_RADIUS_M):
     """
     Overpass API ile verilen noktanın çevresindeki isimli yolları arar ve en yakınının
@@ -272,7 +306,25 @@ def reverse_geocode(latitude: float, longitude: float) -> dict:
     for aday in (result['mahalle'], nominatim_mahalle, quarter):
         if aday and aday != 'Bilinmiyor' and aday not in adaylar:
             adaylar.append(aday)
+
+    # Sınır yolları: nokta bir ilçede, yol komşu ilçeye kayıtlı olabiliyor.
+    # İçinde bulunulan alan ilk sırada kalıyor, komşular arkasına ekleniyor.
+    for komsu in komsu_idari_alanlar(latitude, longitude, MAHALLE_ADMIN_LEVEL):
+        if komsu not in adaylar:
+            adaylar.append(komsu)
     result['mahalle_adaylari'] = adaylar
+
+    ilce_adaylari = []
+    if result['ilçe'] != 'Bilinmiyor':
+        ilce_adaylari.append(result['ilçe'])
+    for komsu in komsu_idari_alanlar(latitude, longitude, ILCE_ADMIN_LEVEL):
+        if komsu not in ilce_adaylari:
+            ilce_adaylari.append(komsu)
+    result['ilce_adaylari'] = ilce_adaylari
+    if len(ilce_adaylari) > 1:
+        print(f"[INFO] Nokta ilçe sınırında; adaylar: {', '.join(ilce_adaylari)}")
+    if len(adaylar) > 1:
+        print(f"[INFO] Mahalle adayları: {', '.join(adaylar)}")
 
     # Nominatim isimsiz bir yol parçasına düştüyse sokak boş kalıyor — çevredeki
     # en yakın isimli yolu Overpass'tan çekip dolduruyoruz.

@@ -175,8 +175,12 @@ class IhbarBotGUI:
         
         # Adres Görüntüleme
         ttk.Label(form_frame, text="Tespit Edilen Adres:").grid(row=3, column=0, sticky="nw", pady=5)
-        address_lbl = ttk.Label(form_frame, textvariable=self.address_var, font=('Helvetica', 9, 'bold'), foreground='#0369a1', wraplength=400, justify="left")
-        address_lbl.grid(row=3, column=1, columnspan=2, sticky="w", padx=5, pady=5)
+        address_lbl = ttk.Label(form_frame, textvariable=self.address_var, font=('Helvetica', 9, 'bold'), foreground='#0369a1', wraplength=330, justify="left")
+        address_lbl.grid(row=3, column=1, sticky="w", padx=5, pady=5)
+        # Coğrafi kodlama sınır yollarında yanlış ilçe/mahalle verebiliyor ve
+        # eskiden adres salt okunurdu; düzeltme yolu olmayınca ihbar tıkanıyordu.
+        ttk.Button(form_frame, text="Adresi Düzelt",
+                   command=self.edit_address).grid(row=3, column=2, sticky="e", pady=5)
         
         # 3. Tarih Saat
         ttk.Label(form_frame, text="İhlal Tarih / Saat:").grid(row=4, column=0, sticky="w", pady=5)
@@ -490,6 +494,58 @@ class IhbarBotGUI:
             threading.Thread(target=geocode_task, daemon=True).start()
         except ValueError:
             messagebox.showerror("Hata", "Koordinat formatı geçersiz! Lütfen 'Enlem, Boylam' şeklinde girin (Örn: 40.9330, 29.3019)")
+
+    def edit_address(self):
+        """İl/ilçe/mahalle/sokak alanlarını elle düzeltmek için küçük bir pencere.
+
+        Sınır yollarında Nominatim noktayı komşu ilçeye düşürebiliyor (ör.
+        Eşref Bitlis Bulvarı Pendik-Sultanbeyli hattında uzanıyor) ve site
+        sokak listesini mahalleye göre süzdüğü için doğru sokak hiç çıkmıyor.
+        Otomatik tespit tutmadığında kullanıcının devam edebilmesi şart."""
+        mevcut = getattr(self, 'address_info', None) or {}
+        pencere = tk.Toplevel(self.root)
+        pencere.title("Adresi Düzelt")
+        pencere.transient(self.root)
+        pencere.grab_set()
+        pencere.resizable(False, False)
+
+        cerceve = ttk.Frame(pencere, padding="15 15 15 15")
+        cerceve.grid(sticky="nsew")
+        ttk.Label(cerceve, text="Sitedeki açılır listelerde yazdığı gibi girin:",
+                  font=('Helvetica', 9)).grid(row=0, column=0, columnspan=2,
+                                              sticky="w", pady=(0, 10))
+
+        alanlar = {}
+        for sira, (anahtar, etiket) in enumerate(
+                (('il', 'İl'), ('ilçe', 'İlçe'), ('mahalle', 'Mahalle'), ('sokak', 'Cadde / Sokak')), start=1):
+            ttk.Label(cerceve, text=etiket + ":").grid(row=sira, column=0, sticky="w", pady=3)
+            degisken = tk.StringVar(value=mevcut.get(anahtar, ''))
+            ttk.Entry(cerceve, textvariable=degisken, width=34).grid(
+                row=sira, column=1, sticky="ew", padx=(8, 0), pady=3)
+            alanlar[anahtar] = degisken
+
+        def kaydet():
+            yeni = {a: d.get().strip() or 'Bilinmiyor' for a, d in alanlar.items()}
+            # mahalle_adaylari'nı elle girilen mahalleyle baştan kur: eski
+            # adaylar artık başka bir ilçeye ait olabilir.
+            yeni['mahalle_adaylari'] = ([yeni['mahalle']]
+                                        if yeni['mahalle'] != 'Bilinmiyor' else [])
+            self.address_info = yeni
+            self.address_var.set(f"{yeni['il']} / {yeni['ilçe']} / "
+                                 f"{yeni['mahalle']} / {yeni['sokak']}")
+            print(f"[INFO] Adres elle düzeltildi: {self.address_var.get()}")
+            self.save_session()
+            pencere.destroy()
+
+        dugmeler = ttk.Frame(cerceve)
+        dugmeler.grid(row=5, column=0, columnspan=2, sticky="e", pady=(12, 0))
+        ttk.Button(dugmeler, text="İptal", command=pencere.destroy).pack(side="left", padx=4)
+        ttk.Button(dugmeler, text="Kaydet", command=kaydet).pack(side="left")
+
+        pencere.update_idletasks()
+        x = self.root.winfo_rootx() + 60
+        y = self.root.winfo_rooty() + 80
+        pencere.geometry(f"+{x}+{y}")
 
     def process_queue(self):
         try:
