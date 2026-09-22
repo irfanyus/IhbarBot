@@ -242,16 +242,15 @@ class IhbarBotGUI:
     def _dayanak_secildi(self, *_):
         """Listede işaretlenen maddeleri seçime yazar (çoklu seçim destekli).
 
-        Seçim değiştikçe ihbara gidecek tam metin log'a basılıyor: liste kutusu
-        yer darlığından madde başlığını gösteriyor, ama resmî tanımı görmeden
-        metni elle kısaltmak mümkün değil."""
+        Seçim değiştikçe ihbara gidecek metnin aynısı log'a basılıyor, böylece
+        BAŞLAT'a basmadan önce açıklamanın son hâli görülebiliyor."""
         secili = [self.dayanak_adaylari[i] for i in self.dayanak_list.curselection()
                   if i < len(self.dayanak_adaylari)]
         if secili != self.secilen_ihlaller:
             self.secilen_ihlaller = secili
             if secili:
                 print("[INFO] İhbara yazılacak kanuni dayanak:")
-                print("       " + ihlal_katalogu.dayanak_metni(secili))
+                print("       " + ihlal_katalogu.dayanak_metni(secili, kisa=True))
         self._dayanak_durumu_yaz()
 
     def _dayanak_durumu_yaz(self):

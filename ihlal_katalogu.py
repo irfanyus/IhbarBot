@@ -411,17 +411,23 @@ def dayanak_metni(ihlaller, kisa: bool = False) -> str:
     return f"Kanuni dayanak: {KANUN_ADI}. " + " ".join(parcalar)
 
 
-def dayanak_ekle(aciklama: str, ihlaller=None, azami: int = AZAMI_ACIKLAMA) -> tuple:
+def dayanak_ekle(aciklama: str, ihlaller=None, kisa: bool = True,
+                 azami: int = AZAMI_ACIKLAMA) -> tuple:
     """Açıklamanın sonuna kanuni dayanağı ekler; (yeni_metin, ihlal_listesi) döner.
 
     ihlaller tek bir Ihlal de olabilir, liste de. Hiç verilmezse açıklamadan
     otomatik eşleştirilir (tek madde). Eşleşme yoksa metin olduğu gibi kalır -
     uydurma madde yazmaktansa hiç yazmamak doğrusu.
 
-    Çok sayıda madde seçilip metin `azami`yi aşarsa resmî tanımlar yerine madde
-    başlıkları yazılıyor. Sessizce kırpmaktansa kısaltmak gerekiyor: form_filler
-    açıklamayı 3000 karakterde kesiyor ve kesilen yer cümlenin ortası oluyor,
-    yani son madde yarım kalmış halde resmi ihbara giriyordu."""
+    Varsayılan kısa biçim: madde numarası + madde başlığı. Rehberdeki resmî
+    tanımlar tek başına 300 karakteri bulabiliyor ve iki ihlalde açıklama
+    okunmaz bir mevzuat alıntısına dönüşüyordu; ihbarı değerlendiren kişi için
+    asıl bilgi madde numarası. Tam tanım kisa=False ile alınabiliyor, aday
+    listelerinde de görünmeye devam ediyor.
+
+    kisa=False verilip metin `azami`yi aşarsa yine kısa biçime düşülüyor:
+    form_filler açıklamayı 3000 karakterde kesiyor ve kesilen yer cümlenin
+    ortası oluyor, yani son madde yarım kalmış halde resmi ihbara giriyordu."""
     if ihlaller is None:
         ihlaller = [eslestir(aciklama)]
     elif isinstance(ihlaller, Ihlal):
@@ -429,11 +435,15 @@ def dayanak_ekle(aciklama: str, ihlaller=None, azami: int = AZAMI_ACIKLAMA) -> t
     ihlaller = [i for i in ihlaller if i is not None]
     if not ihlaller:
         return aciklama, []
-    dayanak = dayanak_metni(ihlaller)
+    dayanak = dayanak_metni(ihlaller, kisa=kisa)
     if len(aciklama) + 1 + len(dayanak) > azami:
-        dayanak = dayanak_metni(ihlaller, kisa=True)
-        print(f"[UYARI] Açıklama {azami} karakter sınırını aşıyordu; kanuni dayanak "
-              f"resmî tanımlardan madde başlıklarına indirildi.")
+        if not kisa:
+            dayanak = dayanak_metni(ihlaller, kisa=True)
+            print(f"[UYARI] Açıklama {azami} karakter sınırını aşıyordu; kanuni dayanak "
+                  f"resmî tanımlardan madde başlıklarına indirildi.")
+        else:
+            print(f"[UYARI] Açıklama kısa biçimde bile {azami} karakteri aşıyor; "
+                  f"site metni keser. Daha az madde seçin.")
     if dayanak in aciklama:
         return aciklama, ihlaller
     return f"{aciklama}\n{dayanak}", ihlaller
