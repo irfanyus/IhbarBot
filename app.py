@@ -18,6 +18,7 @@ from main import (find_video_in_folder, parse_plates_from_filename,
                   find_image_in_folder, prepare_image_from_video,
                   compress_image_for_upload)
 import drive_uploader
+import ihlal_katalogu
 from selenium import webdriver
 
 class AutomationCancelled(Exception):
@@ -84,6 +85,10 @@ class IhbarBotGUI:
         self.plate_var = tk.StringVar(value="")
         self.datetime_var = tk.StringVar(value="")
         self.details_var = tk.StringVar(value="")
+        # Olay detayından eşleşen KTK maddesi; formun altında gösterilip
+        # ihbar açıklamasına kanuni dayanak olarak ekleniyor.
+        self.dayanak_var = tk.StringVar(value="")
+        self.eslesen_ihlal = None
         
         # Build UI Sections
         self._build_header()
@@ -180,9 +185,31 @@ class IhbarBotGUI:
         plate_entry.grid(row=5, column=1, columnspan=2, sticky="ew", padx=5, pady=5)
         
         # 5. Olay Detayı
+        # Düzenlenebilir Combobox: katalogdan seçilebiliyor ama serbest metin de
+        # yazılabiliyor; iki durumda da ihlal_katalogu.eslestir() maddeyi buluyor.
         ttk.Label(form_frame, text="Olay Detayı Açıklaması:").grid(row=6, column=0, sticky="nw", pady=5)
-        details_entry = ttk.Entry(form_frame, textvariable=self.details_var)
+        details_entry = ttk.Combobox(form_frame, textvariable=self.details_var,
+                                     values=ihlal_katalogu.etiketler())
         details_entry.grid(row=6, column=1, columnspan=2, sticky="ew", padx=5, pady=5)
+
+        # 6. Tespit edilen kanuni dayanak (salt okunur bilgi satırı)
+        ttk.Label(form_frame, text="Kanuni Dayanak:").grid(row=7, column=0, sticky="nw", pady=5)
+        dayanak_lbl = ttk.Label(form_frame, textvariable=self.dayanak_var,
+                                font=('Helvetica', 9), foreground='#166534',
+                                wraplength=400, justify="left")
+        dayanak_lbl.grid(row=7, column=1, columnspan=2, sticky="w", padx=5, pady=5)
+        self.details_var.trace_add("write", self._update_dayanak)
+        self._update_dayanak()
+
+    def _update_dayanak(self, *_):
+        """Olay detayı her değiştiğinde eşleşen KTK maddesini ekranda gösterir."""
+        self.eslesen_ihlal = ihlal_katalogu.eslestir(self.details_var.get())
+        if self.eslesen_ihlal:
+            self.dayanak_var.set(self.eslesen_ihlal.ozet())
+        elif self.details_var.get().strip():
+            self.dayanak_var.set("Eşleşen madde bulunamadı - ihbar dayanak satırı olmadan gider.")
+        else:
+            self.dayanak_var.set("")
 
     def _build_console_log(self):
         console_frame = ttk.LabelFrame(self.root, text=" Log Çıktıları ve Durum Bilgisi ", padding="10 10 10 10")
@@ -586,6 +613,7 @@ class IhbarBotGUI:
                 "ihlal_tarihi": self.datetime_var.get().strip(),
                 "adres": self.address_var.get(),
                 "detay": self.details_var.get().strip(),
+                "madde": self.eslesen_ihlal.madde if self.eslesen_ihlal else "",
             })
         try:
             with open(self.history_file, "w", encoding="utf-8") as f:
@@ -640,6 +668,15 @@ class IhbarBotGUI:
             
         # Compile description
         description_text = f"Tarih/Saat: {dt_str}\nPlaka: {plaka}\nOlay Detayı: {olay_detayi}"
+        # İhlalin KTK karşılığını açıklamaya ekle: hem ihbarı değerlendiren birim
+        # için hem de fahri trafik müfettişliği kaydı için maddeli metin anlamlı.
+        description_text, eslesen_ihlal = ihlal_katalogu.dayanak_ekle(
+            description_text, self.eslesen_ihlal)
+        if eslesen_ihlal:
+            print(f"[INFO] Kanuni dayanak eklendi: KTK {eslesen_ihlal.madde} - {eslesen_ihlal.resmi_tanim}")
+        else:
+            print("[UYARI] Olay detayı katalogdaki hiçbir maddeyle eşleşmedi; "
+                  "ihbar kanuni dayanak satırı olmadan gönderilecek.")
         # Site açıklamada en az 50 karakter istiyor; kısa metinde 2. adım kilitleniyor.
         if len(description_text) < 50:
             messagebox.showerror(

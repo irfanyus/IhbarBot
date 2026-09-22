@@ -7,6 +7,7 @@ from geocoder import reverse_geocode
 from form_filler import IhbarFormFiller, ALLOWED_IMAGE_EXT, MAX_IMAGE_BYTES
 from ocr_helper import extract_frame_from_video, get_video_duration
 import drive_uploader
+import ihlal_katalogu
 from selenium import webdriver
 
 # Türk plaka formatı: 2 hane il kodu + 1-3 harf + 2-4 rakam (örn: 09AID146, 34JJ9251)
@@ -148,6 +149,23 @@ def compress_image_for_upload(image_path, out_dir=None):
     return out_path if os.path.exists(out_path) else image_path
 
 
+def olay_detayi_sor():
+    """Olay detayını katalog numarasıyla ya da serbest metinle alır.
+
+    Numara girilirse katalogdaki etiket olduğu gibi kullanılıyor; serbest metin
+    girilirse ihlal_katalogu.eslestir() maddeyi yine de bulmaya çalışıyor."""
+    print("\n[INPUT] Sık ihbar edilen ihlaller:")
+    etiketler = ihlal_katalogu.etiketler()
+    for i, etiket in enumerate(etiketler, 1):
+        print(f"  {i:2d}. {etiket}")
+    girdi = input("Numara seçin veya olay detayını serbestçe yazın: ").strip()
+    if girdi.isdigit() and 1 <= int(girdi) <= len(etiketler):
+        secilen = etiketler[int(girdi) - 1]
+        print(f"[INFO] Seçildi: {secilen}")
+        return secilen
+    return girdi
+
+
 def main():
     print("\n" + "="*60)
     print("                 İHBARBOT BAŞLATILIYOR")
@@ -236,7 +254,7 @@ def main():
             plaka = manual
     else:
         plaka = input("İhbar edilecek araç plakası (Örn: 34XYZ999): ").strip().upper()
-    olay_detayi = input("Olay detayı açıklaması: ").strip()
+    olay_detayi = olay_detayi_sor()
 
     # Adres Çözümleme (İlk Adres Sorgusu)
     address_info = None
@@ -255,6 +273,8 @@ def main():
         print(f"   Tespit Adresi: {address_info.get('il', 'Bilinmiyor')} / {address_info.get('ilçe', 'Bilinmiyor')} / {address_info.get('mahalle', 'Bilinmiyor')} / {address_info.get('sokak', 'Bilinmiyor')}")
         print(f"2. Araç Plakası : {plaka}")
         print(f"3. Olay Açıklama: {olay_detayi}")
+        _eslesen = ihlal_katalogu.eslestir(olay_detayi)
+        print(f"   Kanuni Dayanak: {_eslesen.ozet() if _eslesen else 'eşleşme yok'}")
         print(f"4. Tarih / Saat : {datetime_str}")
         print("="*60)
         
@@ -278,7 +298,7 @@ def main():
             plaka = input("Yeni araç plakası: ").strip().upper()
             
         elif choice == "3":
-            olay_detayi = input("Yeni olay detayı açıklaması: ").strip()
+            olay_detayi = olay_detayi_sor()
             
         elif choice == "4":
             datetime_str = input("Yeni tarih/saat (Örn: 30.06.2026 17:21): ").strip()
@@ -288,12 +308,19 @@ def main():
 
     # Açıklama metnini son haline getir
     description_text = f"Tarih/Saat: {datetime_str}\nPlaka: {plaka}\nOlay Detayı: {olay_detayi}"
+    description_text, eslesen_ihlal = ihlal_katalogu.dayanak_ekle(description_text)
+    if eslesen_ihlal:
+        print(f"[INFO] Kanuni dayanak eklendi: KTK {eslesen_ihlal.madde} - {eslesen_ihlal.resmi_tanim}")
+    else:
+        print("[UYARI] Olay detayı katalogdaki hiçbir maddeyle eşleşmedi; "
+              "ihbar kanuni dayanak satırı olmadan gönderilecek.")
 
     # Site olay açıklamasında en az 50 karakter istiyor; kısa metinde 2. adım kilitleniyor.
     while len(description_text) < 50:
         print(f"\n[UYARI] Açıklama {len(description_text)} karakter; site en az 50 karakter istiyor.")
         olay_detayi = input("Olay detayını biraz daha ayrıntılı yazın: ").strip()
         description_text = f"Tarih/Saat: {datetime_str}\nPlaka: {plaka}\nOlay Detayı: {olay_detayi}"
+        description_text, eslesen_ihlal = ihlal_katalogu.dayanak_ekle(description_text)
 
     # 4. Yüklenecek görselin hazırlanması
     # Site (v1.1.38) video yüklemeyi kaldırdı: yalnızca jpg/jpeg/png kabul ediliyor.
