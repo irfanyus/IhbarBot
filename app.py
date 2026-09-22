@@ -88,7 +88,9 @@ class IhbarBotGUI:
         # Olay detayından eşleşen KTK maddesi; formun altında gösterilip
         # ihbar açıklamasına kanuni dayanak olarak ekleniyor.
         self.dayanak_var = tk.StringVar(value="")
-        self.eslesen_ihlal = None
+        # Bir ihbarda birden fazla ihlal olabilir (ör. yaya geçidinde yol vermeyip
+        # ters şeride geçmek), bu yüzden seçim çoklu.
+        self.secilen_ihlaller = []
         self.dayanak_adaylari = []
         
         # Build UI Sections
@@ -197,38 +199,68 @@ class IhbarBotGUI:
         # kullanıcı seçiyor. Tek bir bendi koda dayatmak, yanlış maddeyi resmi
         # bir ihbara sessizce yazma riski demekti.
         ttk.Label(form_frame, text="Kanuni Dayanak:").grid(row=7, column=0, sticky="nw", pady=5)
-        self.dayanak_combo = ttk.Combobox(form_frame, textvariable=self.dayanak_var,
-                                          state="readonly", values=[])
-        self.dayanak_combo.grid(row=7, column=1, columnspan=2, sticky="ew", padx=5, pady=5)
-        self.dayanak_combo.bind("<<ComboboxSelected>>", self._dayanak_secildi)
+        dayanak_frame = ttk.Frame(form_frame)
+        dayanak_frame.grid(row=7, column=1, columnspan=2, sticky="ew", padx=5, pady=5)
+        dayanak_frame.columnconfigure(0, weight=1)
+
+        # Çoklu seçim: Cmd/Shift ile birden fazla madde işaretlenebiliyor.
+        self.dayanak_list = tk.Listbox(dayanak_frame, height=4, exportselection=False,
+                                       selectmode=tk.EXTENDED, activestyle="none",
+                                       font=('Helvetica', 10), highlightthickness=0,
+                                       borderwidth=1, relief="solid")
+        self.dayanak_list.grid(row=0, column=0, sticky="ew")
+        dayanak_scroll = ttk.Scrollbar(dayanak_frame, orient="vertical",
+                                       command=self.dayanak_list.yview)
+        dayanak_scroll.grid(row=0, column=1, sticky="ns")
+        self.dayanak_list.configure(yscrollcommand=dayanak_scroll.set)
+        self.dayanak_list.bind("<<ListboxSelect>>", self._dayanak_secildi)
+
+        self.dayanak_durum = ttk.Label(dayanak_frame, textvariable=self.dayanak_var,
+                                       font=('Helvetica', 9), wraplength=400,
+                                       justify="left")
+        self.dayanak_durum.grid(row=1, column=0, columnspan=2, sticky="w", pady=(3, 0))
+
         self.details_var.trace_add("write", self._update_dayanak)
         self._update_dayanak()
 
     def _update_dayanak(self, *_):
-        """Olay detayı değiştikçe aday maddeleri tazeler, en olasıyı seçili bırakır."""
+        """Olay detayı değiştikçe aday maddeleri tazeler, en olasıyı seçili bırakır.
+
+        Kullanıcının elle yaptığı çoklu seçim burada sıfırlanıyor: adaylar
+        değiştiğinde eski indeksler başka maddelere işaret ederdi."""
         self.dayanak_adaylari = ihlal_katalogu.adaylari_bul(self.details_var.get())
-        self.dayanak_combo.configure(values=[i.ozet() for i in self.dayanak_adaylari])
+        self.dayanak_list.delete(0, tk.END)
+        for aday in self.dayanak_adaylari:
+            self.dayanak_list.insert(tk.END, "  " + aday.kisa_ozet())
         if self.dayanak_adaylari:
-            self.eslesen_ihlal = self.dayanak_adaylari[0]
-            self.dayanak_var.set(self.eslesen_ihlal.ozet())
-            if len(self.dayanak_adaylari) > 1:
-                self.dayanak_combo.configure(foreground="#b45309")
-            else:
-                self.dayanak_combo.configure(foreground="#166534")
+            self.dayanak_list.selection_set(0)
+            self.secilen_ihlaller = [self.dayanak_adaylari[0]]
         else:
-            self.eslesen_ihlal = None
-            self.dayanak_combo.configure(foreground="#b45309")
-            self.dayanak_var.set(
-                "Eşleşen madde bulunamadı - ihbar dayanak satırı olmadan gider."
-                if self.details_var.get().strip() else "")
+            self.secilen_ihlaller = []
+        self._dayanak_durumu_yaz()
 
     def _dayanak_secildi(self, *_):
-        """Kullanıcı aday listesinden başka bir maddeyi seçti."""
-        idx = self.dayanak_combo.current()
-        if 0 <= idx < len(self.dayanak_adaylari):
-            self.eslesen_ihlal = self.dayanak_adaylari[idx]
-            print(f"[INFO] Kanuni dayanak elle seçildi: KTK {self.eslesen_ihlal.madde} "
-                  f"- {self.eslesen_ihlal.resmi_tanim}")
+        """Listede işaretlenen maddeleri seçime yazar (çoklu seçim destekli)."""
+        secili = [self.dayanak_adaylari[i] for i in self.dayanak_list.curselection()
+                  if i < len(self.dayanak_adaylari)]
+        self.secilen_ihlaller = secili
+        self._dayanak_durumu_yaz()
+
+    def _dayanak_durumu_yaz(self):
+        """Liste altındaki özet satırını ve rengini günceller."""
+        if self.secilen_ihlaller:
+            maddeler = ", ".join(i.madde for i in self.secilen_ihlaller)
+            self.dayanak_var.set(f"İhbara yazılacak: KTK {maddeler} "
+                                 f"({len(self.secilen_ihlaller)} madde)")
+            self.dayanak_durum.configure(foreground="#166534")
+        elif self.dayanak_adaylari:
+            self.dayanak_var.set("Hiçbir madde seçili değil - ihbar dayanak satırı olmadan gider.")
+            self.dayanak_durum.configure(foreground="#b45309")
+        elif self.details_var.get().strip():
+            self.dayanak_var.set("Eşleşen madde bulunamadı - ihbar dayanak satırı olmadan gider.")
+            self.dayanak_durum.configure(foreground="#b45309")
+        else:
+            self.dayanak_var.set("")
 
     def _build_console_log(self):
         console_frame = ttk.LabelFrame(self.root, text=" Log Çıktıları ve Durum Bilgisi ", padding="10 10 10 10")
@@ -632,7 +664,7 @@ class IhbarBotGUI:
                 "ihlal_tarihi": self.datetime_var.get().strip(),
                 "adres": self.address_var.get(),
                 "detay": self.details_var.get().strip(),
-                "madde": self.eslesen_ihlal.madde if self.eslesen_ihlal else "",
+                "madde": ", ".join(i.madde for i in self.secilen_ihlaller),
             })
         try:
             with open(self.history_file, "w", encoding="utf-8") as f:
@@ -689,13 +721,14 @@ class IhbarBotGUI:
         description_text = f"Tarih/Saat: {dt_str}\nPlaka: {plaka}\nOlay Detayı: {olay_detayi}"
         # İhlalin KTK karşılığını açıklamaya ekle: hem ihbarı değerlendiren birim
         # için hem de fahri trafik müfettişliği kaydı için maddeli metin anlamlı.
-        eslesen_ihlal = self.eslesen_ihlal
-        if eslesen_ihlal:
-            description_text, _ = ihlal_katalogu.dayanak_ekle(description_text, eslesen_ihlal)
-            print(f"[INFO] Kanuni dayanak eklendi: KTK {eslesen_ihlal.madde} - {eslesen_ihlal.resmi_tanim}")
+        if self.secilen_ihlaller:
+            description_text, _ = ihlal_katalogu.dayanak_ekle(
+                description_text, self.secilen_ihlaller)
+            for ihlal in self.secilen_ihlaller:
+                print(f"[INFO] Kanuni dayanak eklendi: KTK {ihlal.madde} - {ihlal.resmi_tanim}")
         else:
-            print("[UYARI] Olay detayı katalogdaki hiçbir maddeyle eşleşmedi; "
-                  "ihbar kanuni dayanak satırı olmadan gönderilecek.")
+            print("[UYARI] Hiçbir kanuni dayanak seçilmedi; "
+                  "ihbar dayanak satırı olmadan gönderilecek.")
         # Site açıklamada en az 50 karakter istiyor; kısa metinde 2. adım kilitleniyor.
         if len(description_text) < 50:
             messagebox.showerror(

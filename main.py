@@ -167,31 +167,50 @@ def olay_detayi_sor():
 
 
 def madde_sec(olay_detayi):
-    """Eşleşen KTK maddelerini listeleyip doğrusunu kullanıcıya seçtirir.
+    """Eşleşen KTK maddelerini listeleyip doğru olan(lar)ı kullanıcıya seçtirir.
 
-    Tek aday varsa sormadan geçiyor; hiç aday yoksa None dönüp ihbarın
-    dayanak satırı olmadan gitmesine izin veriyor. Uydurma madde yazmaktansa
-    hiç yazmamak doğrusu."""
+    Bir ihbarda birden fazla ihlal olabildiği için virgülle çoklu seçim kabul
+    ediliyor ("1,3"). Tek aday varsa sormuyor; hiç aday yoksa boş liste dönüp
+    ihbarın dayanak satırı olmadan gitmesine izin veriyor - uydurma madde
+    yazmaktansa hiç yazmamak doğrusu."""
     adaylar = ihlal_katalogu.adaylari_bul(olay_detayi)
     if not adaylar:
         print("[UYARI] Olay detayı katalogdaki hiçbir maddeyle eşleşmedi; "
               "ihbar kanuni dayanak satırı olmadan gönderilecek.")
-        return None
+        return []
     if len(adaylar) == 1:
         print(f"[INFO] Kanuni dayanak: {adaylar[0].ozet()}")
-        return adaylar[0]
+        return adaylar
 
     print("\n[INPUT] Olay detayına uyan maddeler (en olası ilk sırada):")
     for i, aday in enumerate(adaylar, 1):
         print(f"  {i}. {aday.ozet()}")
     print("  0. Hiçbiri - dayanak satırı eklenmesin")
-    secim = input("Doğru maddeyi seçin (ENTER = 1): ").strip()
+    secim = input("Madde numaralarını girin, birden fazlaysa virgülle "
+                  "(ör. 1,3 - ENTER = 1): ").strip()
     if secim == "0":
         print("[INFO] Kanuni dayanak eklenmeyecek.")
-        return None
-    if secim.isdigit() and 1 <= int(secim) <= len(adaylar):
-        return adaylar[int(secim) - 1]
-    return adaylar[0]
+        return []
+    if not secim:
+        return [adaylar[0]]
+
+    secilenler, hatali = [], []
+    for parca in re.split(r"[^0-9]+", secim):
+        if not parca:
+            continue
+        no = int(parca)
+        if 1 <= no <= len(adaylar):
+            if adaylar[no - 1] not in secilenler:
+                secilenler.append(adaylar[no - 1])
+        else:
+            hatali.append(parca)
+    if hatali:
+        print(f"[UYARI] Listede olmayan numara yok sayıldı: {', '.join(hatali)}")
+    if not secilenler:
+        print("[UYARI] Geçerli seçim yapılmadı; ilk madde kullanılıyor.")
+        return [adaylar[0]]
+    print(f"[INFO] Seçilen madde(ler): {', '.join(i.madde for i in secilenler)}")
+    return secilenler
 
 
 def main():
@@ -303,7 +322,8 @@ def main():
         print(f"3. Olay Açıklama: {olay_detayi}")
         _adaylar = ihlal_katalogu.adaylari_bul(olay_detayi)
         if _adaylar:
-            _ek = f" (+{len(_adaylar) - 1} aday daha)" if len(_adaylar) > 1 else ""
+            _ek = (f" (+{len(_adaylar) - 1} aday daha, birden fazlası seçilebilir)"
+                   if len(_adaylar) > 1 else "")
             print(f"   Kanuni Dayanak: {_adaylar[0].ozet()}{_ek}")
         else:
             print("   Kanuni Dayanak: eşleşme yok")
@@ -340,18 +360,19 @@ def main():
 
     # Açıklama metnini son haline getir
     description_text = f"Tarih/Saat: {datetime_str}\nPlaka: {plaka}\nOlay Detayı: {olay_detayi}"
-    secilen_ihlal = madde_sec(olay_detayi)
-    if secilen_ihlal:
-        description_text, _ = ihlal_katalogu.dayanak_ekle(description_text, secilen_ihlal)
-        print(f"[INFO] Kanuni dayanak eklendi: KTK {secilen_ihlal.madde} - {secilen_ihlal.resmi_tanim}")
+    secilen_ihlaller = madde_sec(olay_detayi)
+    if secilen_ihlaller:
+        description_text, _ = ihlal_katalogu.dayanak_ekle(description_text, secilen_ihlaller)
+        for _ihlal in secilen_ihlaller:
+            print(f"[INFO] Kanuni dayanak eklendi: KTK {_ihlal.madde} - {_ihlal.resmi_tanim}")
 
     # Site olay açıklamasında en az 50 karakter istiyor; kısa metinde 2. adım kilitleniyor.
     while len(description_text) < 50:
         print(f"\n[UYARI] Açıklama {len(description_text)} karakter; site en az 50 karakter istiyor.")
         olay_detayi = input("Olay detayını biraz daha ayrıntılı yazın: ").strip()
         description_text = f"Tarih/Saat: {datetime_str}\nPlaka: {plaka}\nOlay Detayı: {olay_detayi}"
-        if secilen_ihlal:
-            description_text, _ = ihlal_katalogu.dayanak_ekle(description_text, secilen_ihlal)
+        if secilen_ihlaller:
+            description_text, _ = ihlal_katalogu.dayanak_ekle(description_text, secilen_ihlaller)
 
     # 4. Yüklenecek görselin hazırlanması
     # Site (v1.1.38) video yüklemeyi kaldırdı: yalnızca jpg/jpeg/png kabul ediliyor.

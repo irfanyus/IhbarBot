@@ -43,6 +43,15 @@ class Ihlal:
             metin += f" ({self.ceza_puani} ceza puanı)"
         return metin + "."
 
+    def kisa_ozet(self) -> str:
+        """Liste kutusunda tek satıra sığan kısa hâli (resmî tanım yerine etiket)."""
+        parcalar = [f"KTK {self.madde}", self.etiket]
+        if self.ceza_puani:
+            parcalar.append(f"{self.ceza_puani} puan")
+        if self.tutar:
+            parcalar.append(self.tutar)
+        return " - ".join(parcalar)
+
     def ozet(self) -> str:
         """Ekranda gösterilecek özet; burada tutarı da veriyoruz."""
         parcalar = [f"KTK {self.madde}", self.resmi_tanim]
@@ -86,6 +95,12 @@ KATALOG = (
           20, "10.000 TL",
           ("tehlikeli serit", "ani serit", "aniden serit", "onume kirdi", "onumu kesti",
            "sikistirdi", "sikistirma")),
+    Ihlal("yolun_sagindan_gitmeme", "Yolun sağından gitmemek / karşı şeride geçmek", "46/2-a",
+          "Aksine bir işaret bulunmadıkça aracı, gidiş yönüne göre yolun sağından, "
+          "çok şeritli yollarda ise yol ve trafik durumuna göre hızının gerektirdiği "
+          "şeritten sürmemek", 20, "5.000 TL",
+          ("ters serit", "ters seride", "ters seritte", "karsi serit", "karsi seride",
+           "karsi seritte", "karsi yona gecti", "soldan gitti")),
     Ihlal("serit_ihlali", "Şerit izleme/değiştirme kuralı ihlali", "56/1-a",
           "Şerit izleme ve değiştirme kurallarına uymamak", 20, "1.000 TL",
           ("serit ihlali", "serit degistirme", "seritler uzerinde", "iki serit",
@@ -106,11 +121,12 @@ KATALOG = (
 
     Ihlal("ters_yon_tek", "Tek yönlü yolda ters yön", "46/2-h",
           "Tek yönlü karayollarında aracı ters istikamette sürmek", None, "10.000 TL",
-          ("tek yonlu", "tek yonde ters")),
+          ("tek yonlu", "tek yonde ters", "tek yonlu yolda ters")),
     Ihlal("ters_yon_bolunmus", "Bölünmüş yolda ters yön", "46/2-i",
           "Yerleşim yeri içerisinde bölünmüş karayollarında aracı ters istikamette sürmek",
           None, "20.000 TL",
-          ("ters yon", "ters istikamet", "ters yonde", "kontra")),
+          ("ters yon", "ters istikamet", "ters yonde", "kontra", "ters seride gecti",
+           "ters seritte ilerledi")),
     Ihlal("ters_yon_otoyol", "Otoyolda ters yön", "46/2-j-1",
           "Otoyollarda aracı ters istikamette sürmek",
           None, "90.000 TL ve 60 gün sürücü belgesine el koyma",
@@ -366,16 +382,41 @@ def etiketler() -> list:
     return [ihlal.etiket for ihlal in KATALOG]
 
 
-def dayanak_ekle(aciklama: str, ihlal=None) -> tuple:
-    """Açıklamanın sonuna kanuni dayanağı ekler; (yeni_metin, ihlal) döner.
+def dayanak_metni(ihlaller) -> str:
+    """Bir veya birden çok ihlal için tek satırlık kanuni dayanak metni.
 
-    ihlal verilmezse açıklamadan otomatik eşleştirilir. Eşleşme yoksa metin
-    olduğu gibi kalır - uydurma madde yazmaktansa hiç yazmamak doğrusu."""
-    if ihlal is None:
-        ihlal = eslestir(aciklama)
-    if ihlal is None:
-        return aciklama, None
-    dayanak = ihlal.dayanak_metni()
+    Tek ihlalde madde doğrudan cümleye giriyor; birden fazlasında kanun adı
+    bir kez yazılıp maddeler numaralanıyor, çünkü site açıklamayı tek satıra
+    indirip büyük harfe çeviriyor - tekrar eden kanun adı metni okunmaz hale
+    getiriyordu."""
+    ihlaller = [i for i in ihlaller if i is not None]
+    if not ihlaller:
+        return ""
+    if len(ihlaller) == 1:
+        return ihlaller[0].dayanak_metni()
+    parcalar = []
+    for sira, ihlal in enumerate(ihlaller, 1):
+        parca = f"{sira}) Madde {ihlal.madde} - {ihlal.resmi_tanim}"
+        if ihlal.ceza_puani:
+            parca += f" ({ihlal.ceza_puani} ceza puanı)"
+        parcalar.append(parca + ".")
+    return f"Kanuni dayanak: {KANUN_ADI}. " + " ".join(parcalar)
+
+
+def dayanak_ekle(aciklama: str, ihlaller=None) -> tuple:
+    """Açıklamanın sonuna kanuni dayanağı ekler; (yeni_metin, ihlal_listesi) döner.
+
+    ihlaller tek bir Ihlal de olabilir, liste de. Hiç verilmezse açıklamadan
+    otomatik eşleştirilir (tek madde). Eşleşme yoksa metin olduğu gibi kalır -
+    uydurma madde yazmaktansa hiç yazmamak doğrusu."""
+    if ihlaller is None:
+        ihlaller = [eslestir(aciklama)]
+    elif isinstance(ihlaller, Ihlal):
+        ihlaller = [ihlaller]
+    ihlaller = [i for i in ihlaller if i is not None]
+    if not ihlaller:
+        return aciklama, []
+    dayanak = dayanak_metni(ihlaller)
     if dayanak in aciklama:
-        return aciklama, ihlal
-    return f"{aciklama}\n{dayanak}", ihlal
+        return aciklama, ihlaller
+    return f"{aciklama}\n{dayanak}", ihlaller
