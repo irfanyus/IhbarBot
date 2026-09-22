@@ -260,7 +260,9 @@ KATALOG = (
           15, "1.246 TL",
           ("yaya gecidine park", "yaya gecidi uzerine park", "yaya gecidinde park",
            "gecide park", "kavsaga park", "kavsakta park", "donemece park",
-           "tunele park", "rampaya park", "duraklama yasagi olan"), "park"),
+           "tunele park", "rampaya park", "duraklama yasagi olan",
+           "ikinci sira park", "2 sira park", "cift sira park", "ikinci sirada park",
+           "cift park etmis", "ikinci siraya park"), "park"),
     Ihlal("duraga_park", "Durak levhasına 15 m içinde park", "61/1-e",
           "Kamu hizmeti yapan yolcu taşıtlarının duraklarını belirten levhalara iki "
           "yönden onbeş metrelik mesafe içinde park etmek", 10, "1.246 TL",
@@ -292,6 +294,20 @@ KATALOG = (
           "Taşıt yolu üzerinde otobüs, tramvay ve taksi duraklarında duraklamak",
           10, "1.246 TL",
           ("durakta durakladi", "otobus duraginda", "taksi duraginda"), "duraklama"),
+    Ihlal("yaninda_duraklama", "Park etmiş aracın yanında duraklamak (ikinci sıra)",
+          "60/1-g",
+          "Taşıt yolu üzerinde duraklayan veya park edilen araçların yanında "
+          "duraklamak", 10, "1.246 TL",
+          ("ikinci sira durakladi", "cift sira durakladi", "yanina durakladi",
+           "aracin yaninda durdu", "ikinci sirada bekledi", "ikinci sira"),
+          "duraklama"),
+    Ihlal("indirme_bindirme", "İndirme-bindirmede en sağ kenarda durmamak", "58",
+          "İndirme-bindirme sırasında aracı, aksine bir işaret bulunmadıkça gidiş "
+          "yönüne göre yolun en sağ kenarında durdurmamak, yolcuların iniş ve "
+          "binişlerini sağ taraftan yaptırmamak", None, "1.246 TL",
+          ("yolcu indirdi", "yolcu aldi", "musteri aldi", "musteri indirdi",
+           "indirme bindirme", "yol ortasinda yolcu"),
+          "duraklama"),
     Ihlal("sol_seritte_duraklama", "Sol şeritte duraklamak", "60/1-b",
           "Taşıt yolu üzerinde sol şeritte (raylı sistemin bulunduğu yollar hariç) "
           "duraklamak", 10, "1.246 TL",
